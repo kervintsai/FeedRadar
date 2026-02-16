@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="FeedRadarScanner/FeedRadarScanner.csproj" Id="ba5382ea-ef62-4721-ae2e-a714be86f4ae" />
+  <Project Path="FeedRadarWebServer/FeedRadarWebServer.csproj" />
+</Solution>

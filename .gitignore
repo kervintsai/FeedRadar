@@ -1,0 +1,9 @@
+﻿################################################################################
+# 這個 .gitignore 檔案由 Microsoft(R) Visual Studio 自動建立。
+################################################################################
+
+/FeedRadarScanner/bin/Debug/net10.0
+/.vs
+/FeedRadarWebServer/bin/Debug/net10.0
+/FeedRadarWebServer/obj
+/FeedRadarScanner/obj
