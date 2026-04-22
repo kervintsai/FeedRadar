@@ -52,7 +52,7 @@ public class LovecatScanner
             }
         });
 
-        return products;
+        return results;
     }
 
     // ====== Step 1: 抓 search_products.json ======

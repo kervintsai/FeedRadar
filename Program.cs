@@ -1,4 +1,4 @@
-using System;
+Ôªøusing System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading.Tasks;
@@ -65,9 +65,9 @@ class Program
 
         var title = doc.DocumentNode.SelectSingleNode("//h1")?.InnerText?.Trim() ?? "";
 
-        // find ingredient / ¶®§¿ related nodes - look for keywords
+        // find ingredient / Êàê‰ªΩ related nodes - look for keywords
         var ingredientNodes = new List<HtmlNode>();
-        var keywords = new[] { "¶®§¿", "∞t§Ë", "Ingredients", "•D≠n¶®§¿" };
+        var keywords = new[] { "Êàê‰ªΩ", "ÈÖçÊñô", "Ingredients", "‰∏ªË¶ÅÊàê‰ªΩ" };
         foreach (var k in keywords)
         {
             var node = doc.DocumentNode.SelectSingleNode($"//*[contains(text(), '{k}')]");
@@ -78,7 +78,7 @@ class Program
         if (ingredientNodes.Count == 0)
         {
             var desc = doc.DocumentNode.SelectSingleNode("//div[contains(@class,'product-single__description')]")
-                    ?? doc.DocumentNode.SelectSingleNode("//div[contains(@class,'description')]');
+                    ?? doc.DocumentNode.SelectSingleNode("//div[contains(@class,'description')]");
 
             if (desc != null) ingredientNodes.Add(desc);
         }
@@ -88,14 +88,14 @@ class Program
         {
             var text = HtmlEntity.DeEntitize(node.InnerText).Trim();
             // split by common separators
-            var parts = text.Split(new[] { '\n', ',', '°A', ';', '°F', '\u3000' }, StringSplitOptions.RemoveEmptyEntries);
+            var parts = text.Split(new[] { '\n', ',', '„ÄÅ', ';', 'Ôºå', '\u3000' }, StringSplitOptions.RemoveEmptyEntries);
             foreach (var p in parts)
             {
                 var t = p.Trim();
                 if (t.Length > 0 && t.Length < 300)
                 {
                     // ignore headings
-                    if (t.Contains("¶®§¿") || t.Contains("Ingredients") || t.Contains("∞t§Ë") || t.Contains("•D≠n¶®§¿")) continue;
+                    if (t.Contains("Êàê‰ªΩ") || t.Contains("Ingredients") || t.Contains("ÈÖçÊñô") || t.Contains("‰∏ªË¶ÅÊàê‰ªΩ")) continue;
                     ingredients.Add(t);
                 }
             }
