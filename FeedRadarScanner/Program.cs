@@ -1,4 +1,4 @@
-var dbPath = args.Length > 0 ? args[0] : "feeds.db";
+var dbPath = args.Length > 0 ? args[0] : "../feeds.db";
 var scanner = new LovecatScanner();
 var repo = new ProductRepository(dbPath);
 
