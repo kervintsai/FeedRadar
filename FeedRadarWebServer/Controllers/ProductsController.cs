@@ -8,12 +8,17 @@ public class ProductsController(ProductRepository repo, IMemoryCache cache) : Co
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(5);
 
     [HttpGet]
-    public IActionResult GetAll([FromQuery] string? q)
+    public IActionResult GetAll(
+        [FromQuery] string? q,
+        [FromQuery] string? ingredient,
+        [FromQuery] double? minProtein,
+        [FromQuery] double? maxFat,
+        [FromQuery] double? maxFiber)
     {
-        var cacheKey = $"products:{q ?? ""}";
+        var cacheKey = $"products:{q}:{ingredient}:{minProtein}:{maxFat}:{maxFiber}";
         if (!cache.TryGetValue(cacheKey, out List<ProductDto>? products))
         {
-            products = repo.GetAll(q);
+            products = repo.GetAll(q, ingredient, minProtein, maxFat, maxFiber);
             cache.Set(cacheKey, products, CacheTtl);
         }
         return Ok(products);

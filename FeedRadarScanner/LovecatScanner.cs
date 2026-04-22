@@ -1,5 +1,6 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
@@ -16,19 +17,14 @@ public class LovecatScanner
 
     private const string Origin = "https://www.lovecat.com.tw";
 
-    // ====== 對外入口 ======
     public async Task<List<Product>> ScanAsync(string collectionUrl, CancellationToken ct = default)
     {
-        var products = new List<Product>();
-
-        // 1️⃣ 抓所有 product handles
         var handles = await GetAllProductHandlesAsync(collectionUrl, ct);
         Console.WriteLine($"[Debug] total handles = {handles.Count}");
 
-
         var options = new ParallelOptions
         {
-            MaxDegreeOfParallelism = 8, // 先從 4~8 試，太大容易 429
+            MaxDegreeOfParallelism = 8,
             CancellationToken = ct
         };
 
@@ -55,7 +51,6 @@ public class LovecatScanner
         return results;
     }
 
-    // ====== Step 1: 抓 search_products.json ======
     private async Task<List<string>> GetAllProductHandlesAsync(string collectionUrl, CancellationToken ct)
     {
         var per = 1000;
@@ -67,10 +62,8 @@ public class LovecatScanner
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
 
-        var products = root.GetProperty("products");
         var handles = new List<string>();
-
-        foreach (var p in products.EnumerateArray())
+        foreach (var p in root.GetProperty("products").EnumerateArray())
         {
             if (p.TryGetProperty("handle", out var h) && h.ValueKind == JsonValueKind.String)
             {
@@ -86,17 +79,13 @@ public class LovecatScanner
     private static string BuildSearchProductsUrl(string collectionUrl, int page, int per)
     {
         var baseUrl = collectionUrl.TrimEnd('/');
-
         if (!baseUrl.EndsWith("/search_products.json", StringComparison.OrdinalIgnoreCase))
             baseUrl += "/search_products.json";
-
         return $"{baseUrl}?page={page}&per={per}&sort_by=&product_filters=%5B%5D&tags=";
     }
 
-    // ====== Step 2: 抓單一產品 JSON ======
     private async Task<Product?> FetchProductAsync(string handle, CancellationToken ct)
     {
-        // 中文 handle 一定要 encode
         var encodedHandle = Uri.EscapeDataString(handle);
         var jsonUrl = $"{Origin}/products/{encodedHandle}.json";
 
@@ -111,22 +100,26 @@ public class LovecatScanner
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
 
-        var product = new Product
+        var (ingredients, nutrition) = ExtractSections(root);
+
+        return new Product
         {
             Url = $"{Origin}/products/{encodedHandle}",
-            Title = root.GetProperty("title").GetString() ?? ""
+            Title = root.GetProperty("title").GetString() ?? "",
+            IngredientsText = ingredients,
+            NutritionText = nutrition,
+            ProteinPct = ParseNutrientPct(nutrition, "蛋白質"),
+            FatPct = ParseNutrientPct(nutrition, "脂肪"),
+            FiberPct = ParseNutrientPct(nutrition, "粗纖維"),
         };
-
-        product.IngredientsText = ExtractIngredients(root);
-        return product;
     }
 
-    // ====== Step 3: 從 other_descriptions 抓「內容/成分」 ======
-    private static string ExtractIngredients(JsonElement root)
+    // 從 other_descriptions 找到含「內容/成分」的區塊，拆成成分和營養分析兩段
+    private static (string ingredients, string nutrition) ExtractSections(JsonElement root)
     {
         if (!root.TryGetProperty("other_descriptions", out var descs) ||
             descs.ValueKind != JsonValueKind.Array)
-            return "";
+            return ("", "");
 
         foreach (var d in descs.EnumerateArray())
         {
@@ -135,24 +128,56 @@ public class LovecatScanner
             var html = body.GetString() ?? "";
             if (!html.Contains("內容/成分")) continue;
 
-            // 去 HTML tag
             var text = Regex.Replace(html, "<.*?>", string.Empty);
             text = System.Net.WebUtility.HtmlDecode(text);
 
-            // 只取「內容/成分」之後
-            var idx = text.IndexOf("內容/成分", StringComparison.Ordinal);
-            if (idx >= 0)
-                return text.Substring(idx).Trim();
+            var ingIdx = text.IndexOf("內容/成分", StringComparison.Ordinal);
+            if (ingIdx < 0) continue;
+
+            var nutIdx = text.IndexOf("營養分析", StringComparison.Ordinal);
+
+            string ingredients, nutrition;
+            if (nutIdx > ingIdx)
+            {
+                ingredients = text.Substring(ingIdx + "內容/成分".Length, nutIdx - ingIdx - "內容/成分".Length).Trim();
+                nutrition = text.Substring(nutIdx + "營養分析".Length).Trim();
+            }
+            else
+            {
+                ingredients = text.Substring(ingIdx + "內容/成分".Length).Trim();
+                nutrition = "";
+            }
+
+            return (ingredients, nutrition);
         }
 
-        return "";
+        return ("", "");
+    }
+
+    // 從營養分析文字中解析指定營養素的百分比數值
+    private static double? ParseNutrientPct(string text, string nutrientName)
+    {
+        if (string.IsNullOrEmpty(text)) return null;
+
+        var idx = text.IndexOf(nutrientName, StringComparison.Ordinal);
+        if (idx < 0) return null;
+
+        var after = text.Substring(idx + nutrientName.Length);
+        var match = Regex.Match(after, @"(\d+\.?\d*)%");
+        if (match.Success && double.TryParse(match.Groups[1].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out var val))
+            return val;
+
+        return null;
     }
 }
 
-// ====== 資料模型 ======
 public class Product
 {
     public string Url { get; set; } = "";
     public string Title { get; set; } = "";
     public string IngredientsText { get; set; } = "";
+    public string NutritionText { get; set; } = "";
+    public double? ProteinPct { get; set; }
+    public double? FatPct { get; set; }
+    public double? FiberPct { get; set; }
 }
