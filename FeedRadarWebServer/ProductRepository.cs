@@ -7,6 +7,24 @@ public class ProductRepository
     public ProductRepository(IConfiguration config)
     {
         _connectionString = $"Data Source={config["Database:Path"] ?? "feeds.db"}";
+        EnsureSchema();
+    }
+
+    private void EnsureSchema()
+    {
+        using var conn = new SqliteConnection(_connectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            CREATE TABLE IF NOT EXISTS Products (
+                Id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                Url             TEXT UNIQUE NOT NULL,
+                Title           TEXT NOT NULL,
+                IngredientsText TEXT NOT NULL DEFAULT '',
+                ScannedAt       TEXT NOT NULL
+            );
+            """;
+        cmd.ExecuteNonQuery();
     }
 
     public List<ProductDto> GetAll(string? search = null)
