@@ -6,8 +6,25 @@ public class ProductRepository
 
     public ProductRepository(IConfiguration config)
     {
-        _connectionString = $"Data Source={config["Database:Path"] ?? "feeds.db"}";
+        var configuredPath = config["Database:Path"];
+        var dbPath = string.IsNullOrEmpty(configuredPath)
+            ? ResolveDefaultDbPath()
+            : configuredPath;
+        _connectionString = $"Data Source={dbPath}";
         EnsureSchema();
+    }
+
+    private static string ResolveDefaultDbPath()
+    {
+        var dir = AppContext.BaseDirectory;
+        for (int i = 0; i < 5; i++)
+        {
+            if (Directory.GetFiles(dir, "*.slnx").Length > 0 ||
+                Directory.Exists(Path.Combine(dir, ".git")))
+                return Path.Combine(dir, "feeds.db");
+            dir = Path.GetFullPath(Path.Combine(dir, ".."));
+        }
+        return "feeds.db";
     }
 
     private void EnsureSchema()

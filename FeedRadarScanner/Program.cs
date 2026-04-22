@@ -1,4 +1,23 @@
-var dbPath = args.Length > 0 ? args[0] : "../feeds.db";
+// 從執行檔位置往上找 solution 根目錄的 feeds.db
+// 不管從 VS 還是 dotnet run 都能找到正確位置
+string DefaultDbPath()
+{
+    var dir = AppContext.BaseDirectory;
+    for (int i = 0; i < 5; i++)
+    {
+        var candidate = Path.Combine(dir, "feeds.db");
+        // 找到 .git 或 .slnx 就是 solution 根目錄
+        if (Directory.GetFiles(dir, "*.slnx").Length > 0 ||
+            Directory.Exists(Path.Combine(dir, ".git")))
+            return candidate;
+        dir = Path.GetFullPath(Path.Combine(dir, ".."));
+    }
+    return "feeds.db";
+}
+
+var dbPath = args.Length > 0 ? args[0] : DefaultDbPath();
+Console.WriteLine($"DB path: {Path.GetFullPath(dbPath)}");
+
 var scanner = new LovecatScanner();
 var repo = new ProductRepository(dbPath);
 
