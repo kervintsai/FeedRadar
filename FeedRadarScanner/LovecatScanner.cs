@@ -31,9 +31,9 @@ public class LovecatScanner
 
     private static readonly string[] BlockEndMarkers = { "規格", "產地", "適用對象", "注意" };
 
-    // Matches weight-based concentrations: 1000mg/kg, 0.5g/kg, 150mg, 50 IU/kg, 5毫克, 1000國際單位, etc.
+    // Matches weight-based concentrations: 1000mg/kg, 0.5g/kg, 150mg, 1.5克, 5毫克, 1000國際單位, etc.
     private static readonly Regex AmountRegex = new(
-        @"\s*\d+(?:[.,]\d+)?\s*(?:mg|g|mcg|μg|IU|iu|毫克|微克|國際單位)\s*(?:/\s*\w+)?",
+        @"\s*\d+(?:[.,]\d+)?\s*(?:mg|g|mcg|μg|IU|iu|毫克|微克|國際單位|克)\s*(?:/\s*\w+)?",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     // Converts HTML to text, preserving <p>/<br> boundaries as newlines so paragraph
@@ -281,8 +281,11 @@ public class LovecatScanner
             // e.g. "甘露寡糖(萃取自酵母)" stays intact
             var name = AmountRegex.Replace(PctRegex.Replace(s, ""), "").Trim();
 
-            // Strip orphaned closing/opening brackets left over from mid-list splits
-            name = name.TrimEnd(')', '）', ']', '】').TrimStart('(', '（', '[', '【').Trim();
+            // Strip orphaned brackets and trailing punctuation
+            name = name.TrimEnd(')', '）', ']', '】', '.', '。', '.')
+                       .TrimStart('(', '（', '[', '【').Trim();
+            // Normalize multiple whitespace to single space
+            name = Regex.Replace(name, @"\s+", " ");
 
             // BaseName: strip ALL parens then apply prefix stripping
             // e.g. "甘露寡糖(萃取自酵母)" → "甘露寡糖"
@@ -293,7 +296,8 @@ public class LovecatScanner
             if (name.Contains('：') || name.Contains(':')) continue;
             if (name.Contains("大卡")) continue;
             if (name.StartsWith("以") || name.StartsWith("加入") || name.StartsWith("熱量")) continue;
-            if (name.StartsWith("*") || name.StartsWith("並") || name.StartsWith("不但")) continue;
+            if (name.StartsWith("*") || name.StartsWith("並") || name.StartsWith("不但") || name.StartsWith("主要")) continue;
+            if (name is "感官" or "營養" or "毛髮柔亮") continue;
             // unclosed paren: description still attached (e.g. "CLA(共軛亞麻油酸")
             if (name.Contains('(') || name.Contains('（'))
             {

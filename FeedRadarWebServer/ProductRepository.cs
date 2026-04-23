@@ -104,6 +104,7 @@ public class ProductRepository
             SELECT DISTINCT BaseName FROM Ingredients
             WHERE BaseName != ''
               AND length(BaseName) >= 2
+              AND length(BaseName) <= 50
               -- 過濾含數字單位的條目（mg/IU/毫克等）
               AND BaseName !~* '\d+\s*(mg|mcg|μg|iu|%)'
               AND BaseName NOT LIKE '%毫克%'
@@ -128,6 +129,13 @@ public class ProductRepository
               AND BaseName NOT LIKE '*%'
               AND BaseName NOT LIKE '並%'
               AND BaseName NOT LIKE '不但%'
+              AND BaseName NOT LIKE '主要%'
+              AND BaseName NOT IN ('感官', '營養', '毛髮柔亮')
+              -- 過濾含有列表分隔符的殘留串（多原料黏在一起）
+              AND BaseName NOT LIKE '%、%'
+              AND BaseName NOT LIKE '%[%'
+              AND BaseName NOT LIKE '%{%'
+              AND BaseName NOT LIKE '%•%'
             ORDER BY BaseName;
             """;
         using var reader = cmd.ExecuteReader();
