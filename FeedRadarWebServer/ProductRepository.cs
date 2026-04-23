@@ -95,21 +95,18 @@ public class ProductRepository
         Exec(conn, "ALTER TABLE Products ADD COLUMN IF NOT EXISTS CaloriesText TEXT;");
     }
 
-    public List<string> GetIngredients()
+    public List<string> GetIngredients() => new()
     {
-        using var conn = new NpgsqlConnection(_connectionString);
-        conn.Open();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            SELECT IngredientsText FROM Products
-            WHERE IngredientsText != ''
-            ORDER BY Title;
-            """;
-        using var reader = cmd.ExecuteReader();
-        var result = new List<string>();
-        while (reader.Read()) result.Add(reader.GetString(0));
-        return result;
-    }
+        // 陸上動物
+        "雞", "火雞", "鴨", "鵝", "鵪鶉",
+        "豬", "牛", "羊", "鹿", "袋鼠", "兔", "鴯鶓",
+        // 魚類
+        "鮭魚", "鱈魚", "鯡魚", "鯖魚", "鮪魚", "鰹魚",
+        "沙丁魚", "鯷魚", "鰈魚", "比目魚", "鱒魚",
+        "鱸魚", "鰻魚", "平鮋", "虱目魚",
+        // 海鮮
+        "磷蝦", "貽貝", "干貝", "龍蝦", "螃蟹", "鱉",
+    };
 
     public List<ProductDto> GetAll(string? q = null, List<string>? ingredients = null,
         double? minProtein = null, double? maxFat = null, double? maxFiber = null)

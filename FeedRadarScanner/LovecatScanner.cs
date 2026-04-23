@@ -137,32 +137,34 @@ public class LovecatScanner
             .Where(p => p.Length > 2)
             .ToList();
 
-        var ingredientsText   = paragraphs.FirstOrDefault() ?? "";
-        var embeddedNutrition = paragraphs.Count > 1
+        // 內容 = 第一段（原料列表），成分 = 剩餘段落（組成比例）
+        var ingredientsText = paragraphs.FirstOrDefault() ?? "";
+        var compositionText = paragraphs.Count > 1
             ? string.Join(" ", paragraphs.Skip(1)).Trim()
             : "";
 
-        var nutritionText = allSections.GetValueOrDefault("營養成分", embeddedNutrition);
+        // 營養成分 section（若存在）用於解析 protein/fat/fiber %；成分欄位固定存 embedded 部分
+        var nutritionForParsing = allSections.GetValueOrDefault("營養成分", compositionText);
 
-        // Build Sections: exclude 內容 (stored separately); add 成分 if it was embedded
+        // Build Sections: 排除 內容（另存）；成分 固定存 embedded
         var sections = allSections
             .Where(kv => kv.Key != "內容")
             .ToDictionary(kv => kv.Key, kv => kv.Value);
-        if (!string.IsNullOrWhiteSpace(embeddedNutrition) && !sections.ContainsKey("成分"))
-            sections["成分"] = embeddedNutrition;
+        if (!string.IsNullOrWhiteSpace(compositionText))
+            sections["成分"] = compositionText;
 
         return new Product
         {
             Url             = $"{Origin}/products/{encodedHandle}",
             Title           = root.GetProperty("title").GetString() ?? "",
             IngredientsText = ingredientsText,
-            NutritionText   = nutritionText,
+            NutritionText   = compositionText,   // 成分（來自 內容/成分 區塊的第二段）
             Ingredients     = ParseIngredients(ingredientsText),
             Sections        = sections,
             CaloriesText    = ParseCaloriesText(sections),
-            ProteinPct      = ParseNutrientPct(nutritionText, "蛋白質"),
-            FatPct          = ParseNutrientPct(nutritionText, "脂肪"),
-            FiberPct        = ParseNutrientPct(nutritionText, "粗纖維"),
+            ProteinPct      = ParseNutrientPct(nutritionForParsing, "蛋白質"),
+            FatPct          = ParseNutrientPct(nutritionForParsing, "脂肪"),
+            FiberPct        = ParseNutrientPct(nutritionForParsing, "粗纖維"),
         };
     }
 
