@@ -16,7 +16,6 @@ public class ProductRepository
         EnsureSchema();
     }
 
-    // 將 postgresql://user:pass@host:port/db 轉成 Npgsql key-value 格式
     private static string ParseConnectionString(string s)
     {
         if (!s.StartsWith("postgres://") && !s.StartsWith("postgresql://"))
@@ -60,10 +59,22 @@ public class ProductRepository
                 ProductId    INTEGER NOT NULL,
                 IngredientId INTEGER NOT NULL,
                 SortOrder    INTEGER NOT NULL DEFAULT 0,
+                Percentage   DOUBLE PRECISION,
                 PRIMARY KEY (ProductId, IngredientId)
             );
             """);
 
+        Exec(conn, """
+            CREATE TABLE IF NOT EXISTS ProductSections (
+                Id          SERIAL PRIMARY KEY,
+                ProductId   INTEGER NOT NULL,
+                SectionName TEXT NOT NULL,
+                SectionText TEXT NOT NULL,
+                UNIQUE (ProductId, SectionName)
+            );
+            """);
+
+        // Idempotent column additions for existing deployments
         foreach (var (col, def) in new[]
         {
             ("NutritionText", "TEXT NOT NULL DEFAULT ''"),
@@ -74,6 +85,8 @@ public class ProductRepository
         {
             Exec(conn, $"ALTER TABLE Products ADD COLUMN IF NOT EXISTS {col} {def};");
         }
+
+        Exec(conn, "ALTER TABLE ProductIngredients ADD COLUMN IF NOT EXISTS Percentage DOUBLE PRECISION;");
     }
 
     public List<string> GetIngredients()
@@ -96,8 +109,8 @@ public class ProductRepository
         using var cmd = conn.CreateCommand();
 
         var conditions = new List<string>();
-
         var fromClause = "FROM Products p";
+
         if (!string.IsNullOrWhiteSpace(ingredient))
         {
             fromClause = """
@@ -105,8 +118,9 @@ public class ProductRepository
                 JOIN ProductIngredients pi ON pi.ProductId = p.Id
                 JOIN Ingredients i ON i.Id = pi.IngredientId
                 """;
-            conditions.Add("i.Name = @ingredient");
-            cmd.Parameters.AddWithValue("ingredient", ingredient);
+            // Fuzzy match: "雞肉" matches "去骨雞肉", "脫水雞肉", etc.
+            conditions.Add("i.Name ILIKE @ingredient");
+            cmd.Parameters.AddWithValue("ingredient", $"%{ingredient}%");
         }
 
         if (!string.IsNullOrWhiteSpace(q))
@@ -162,23 +176,46 @@ public class ProductRepository
     {
         using var conn = new NpgsqlConnection(_connectionString);
         conn.Open();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            SELECT Id, Url, Title, IngredientsText, NutritionText,
-                   ProteinPct, FatPct, FiberPct, ScannedAt
-            FROM Products WHERE Id = @id;
-            """;
-        cmd.Parameters.AddWithValue("id", id);
-        using var reader = cmd.ExecuteReader();
-        if (!reader.Read()) return null;
-        return new ProductDto(
-            reader.GetInt32(0), reader.GetString(1), reader.GetString(2),
-            reader.GetString(3), reader.GetString(4),
-            reader.IsDBNull(5) ? null : reader.GetDouble(5),
-            reader.IsDBNull(6) ? null : reader.GetDouble(6),
-            reader.IsDBNull(7) ? null : reader.GetDouble(7),
-            reader.GetString(8)
-        );
+
+        // Fetch product row
+        ProductDto? dto;
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT Id, Url, Title, IngredientsText, NutritionText,
+                       ProteinPct, FatPct, FiberPct, ScannedAt
+                FROM Products WHERE Id = @id;
+                """;
+            cmd.Parameters.AddWithValue("id", id);
+            using var reader = cmd.ExecuteReader();
+            if (!reader.Read()) return null;
+            dto = new ProductDto(
+                reader.GetInt32(0), reader.GetString(1), reader.GetString(2),
+                reader.GetString(3), reader.GetString(4),
+                reader.IsDBNull(5) ? null : reader.GetDouble(5),
+                reader.IsDBNull(6) ? null : reader.GetDouble(6),
+                reader.IsDBNull(7) ? null : reader.GetDouble(7),
+                reader.GetString(8)
+            );
+        }
+
+        // Fetch all sections for this product
+        var sections = new Dictionary<string, string>();
+        using (var sectCmd = conn.CreateCommand())
+        {
+            sectCmd.CommandText = """
+                SELECT SectionName, SectionText
+                FROM ProductSections
+                WHERE ProductId = @id
+                ORDER BY Id;
+                """;
+            sectCmd.Parameters.AddWithValue("id", id);
+            using var sectReader = sectCmd.ExecuteReader();
+            while (sectReader.Read())
+                sections[sectReader.GetString(0)] = sectReader.GetString(1);
+        }
+
+        return dto with { Sections = sections };
     }
 
     private static void Exec(NpgsqlConnection conn, string sql)

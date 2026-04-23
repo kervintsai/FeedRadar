@@ -10,7 +10,6 @@ public class ProductRepository
         EnsureSchema();
     }
 
-    // 將 postgresql://user:pass@host:port/db 轉成 Npgsql key-value 格式
     private static string ParseConnectionString(string s)
     {
         if (!s.StartsWith("postgres://") && !s.StartsWith("postgresql://"))
@@ -54,10 +53,22 @@ public class ProductRepository
                 ProductId    INTEGER NOT NULL,
                 IngredientId INTEGER NOT NULL,
                 SortOrder    INTEGER NOT NULL DEFAULT 0,
+                Percentage   DOUBLE PRECISION,
                 PRIMARY KEY (ProductId, IngredientId)
             );
             """);
 
+        Exec(conn, """
+            CREATE TABLE IF NOT EXISTS ProductSections (
+                Id          SERIAL PRIMARY KEY,
+                ProductId   INTEGER NOT NULL,
+                SectionName TEXT NOT NULL,
+                SectionText TEXT NOT NULL,
+                UNIQUE (ProductId, SectionName)
+            );
+            """);
+
+        // Idempotent column additions for existing deployments
         foreach (var (col, def) in new[]
         {
             ("NutritionText", "TEXT NOT NULL DEFAULT ''"),
@@ -68,6 +79,8 @@ public class ProductRepository
         {
             Exec(conn, $"ALTER TABLE Products ADD COLUMN IF NOT EXISTS {col} {def};");
         }
+
+        Exec(conn, "ALTER TABLE ProductIngredients ADD COLUMN IF NOT EXISTS Percentage DOUBLE PRECISION;");
     }
 
     public void Upsert(Product product)
@@ -75,7 +88,7 @@ public class ProductRepository
         using var conn = new NpgsqlConnection(_connectionString);
         conn.Open();
 
-        // 1. upsert product，回傳 Id
+        // 1. Upsert product row, returning its Id
         var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT INTO Products (Url, Title, IngredientsText, NutritionText, ProteinPct, FatPct, FiberPct, ScannedAt)
@@ -90,47 +103,66 @@ public class ProductRepository
                 ScannedAt       = EXCLUDED.ScannedAt
             RETURNING Id;
             """;
-        cmd.Parameters.AddWithValue("url", product.Url);
-        cmd.Parameters.AddWithValue("title", product.Title);
+        cmd.Parameters.AddWithValue("url",        product.Url);
+        cmd.Parameters.AddWithValue("title",      product.Title);
         cmd.Parameters.AddWithValue("ingredients", product.IngredientsText);
-        cmd.Parameters.AddWithValue("nutrition", product.NutritionText);
-        cmd.Parameters.AddWithValue("protein", product.ProteinPct as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("fat", product.FatPct as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("fiber", product.FiberPct as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("scannedAt", DateTime.UtcNow.ToString("O"));
+        cmd.Parameters.AddWithValue("nutrition",  product.NutritionText);
+        cmd.Parameters.AddWithValue("protein",    product.ProteinPct as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("fat",        product.FatPct    as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("fiber",      product.FiberPct  as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("scannedAt",  DateTime.UtcNow.ToString("O"));
         var productId = (int)(cmd.ExecuteScalar() ?? 0);
 
-        // 2. 清掉舊的 product ingredients，重新插入
+        // 2. Replace product ingredients
         var delCmd = conn.CreateCommand();
         delCmd.CommandText = "DELETE FROM ProductIngredients WHERE ProductId = @pid;";
         delCmd.Parameters.AddWithValue("pid", productId);
         delCmd.ExecuteNonQuery();
 
-        // 3. upsert 每個成分
         for (int i = 0; i < product.Ingredients.Count; i++)
         {
-            var name = product.Ingredients[i];
+            var ingredient = product.Ingredients[i];
 
-            // 用 fake update 讓 RETURNING 在衝突時也能回傳 Id
             var ingCmd = conn.CreateCommand();
             ingCmd.CommandText = """
                 INSERT INTO Ingredients (Name) VALUES (@name)
                 ON CONFLICT (Name) DO UPDATE SET Name = EXCLUDED.Name
                 RETURNING Id;
                 """;
-            ingCmd.Parameters.AddWithValue("name", name);
+            ingCmd.Parameters.AddWithValue("name", ingredient.Name);
             var ingredientId = (int)(ingCmd.ExecuteScalar() ?? 0);
 
             var piCmd = conn.CreateCommand();
             piCmd.CommandText = """
-                INSERT INTO ProductIngredients (ProductId, IngredientId, SortOrder)
-                VALUES (@pid, @iid, @order)
+                INSERT INTO ProductIngredients (ProductId, IngredientId, SortOrder, Percentage)
+                VALUES (@pid, @iid, @order, @pct)
                 ON CONFLICT DO NOTHING;
                 """;
-            piCmd.Parameters.AddWithValue("pid", productId);
-            piCmd.Parameters.AddWithValue("iid", ingredientId);
+            piCmd.Parameters.AddWithValue("pid",   productId);
+            piCmd.Parameters.AddWithValue("iid",   ingredientId);
             piCmd.Parameters.AddWithValue("order", i);
+            piCmd.Parameters.AddWithValue("pct",   ingredient.Percentage as object ?? DBNull.Value);
             piCmd.ExecuteNonQuery();
+        }
+
+        // 3. Replace product sections
+        var delSectCmd = conn.CreateCommand();
+        delSectCmd.CommandText = "DELETE FROM ProductSections WHERE ProductId = @pid;";
+        delSectCmd.Parameters.AddWithValue("pid", productId);
+        delSectCmd.ExecuteNonQuery();
+
+        foreach (var (sectionName, sectionText) in product.Sections)
+        {
+            var sectCmd = conn.CreateCommand();
+            sectCmd.CommandText = """
+                INSERT INTO ProductSections (ProductId, SectionName, SectionText)
+                VALUES (@pid, @name, @text)
+                ON CONFLICT (ProductId, SectionName) DO UPDATE SET SectionText = EXCLUDED.SectionText;
+                """;
+            sectCmd.Parameters.AddWithValue("pid",  productId);
+            sectCmd.Parameters.AddWithValue("name", sectionName);
+            sectCmd.Parameters.AddWithValue("text", sectionText);
+            sectCmd.ExecuteNonQuery();
         }
     }
 

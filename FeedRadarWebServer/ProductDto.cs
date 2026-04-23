@@ -7,5 +7,6 @@ public record ProductDto(
     double? ProteinPct,
     double? FatPct,
     double? FiberPct,
-    string ScannedAt
+    string ScannedAt,
+    Dictionary<string, string>? Sections = null
 );

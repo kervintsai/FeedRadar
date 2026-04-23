@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -16,6 +15,21 @@ public class LovecatScanner
     };
 
     private const string Origin = "https://www.lovecat.com.tw";
+
+    // Section header patterns in order of expected appearance
+    private static readonly (string Key, Regex Pattern)[] SectionDefs =
+    {
+        ("內容/成分", new Regex(@"內容/成分",                    RegexOptions.Compiled)),
+        ("添加物",    new Regex(@"添加物(?:[（(][^）)]*[）)])?", RegexOptions.Compiled)),
+        ("營養成分",  new Regex(@"營養(?:成分(?:及含量)?|分析)", RegexOptions.Compiled)),
+        ("代謝能",    new Regex(@"代謝能",                       RegexOptions.Compiled)),
+        ("適口性",    new Regex(@"適口性",                       RegexOptions.Compiled)),
+        ("保存方式",  new Regex(@"保存方式",                     RegexOptions.Compiled)),
+    };
+
+    private static readonly string[] BlockEndMarkers = { "規格", "產地", "適用對象", "注意" };
+    private static readonly Regex PctRegex   = new(@"[（(](\d+\.?\d*)%[）)]", RegexOptions.Compiled);
+    private static readonly Regex ParenRegex = new(@"[\(（][^)）]*[\)）]",     RegexOptions.Compiled);
 
     public async Task<List<Product>> ScanAsync(string collectionUrl, CancellationToken ct = default)
     {
@@ -84,28 +98,30 @@ public class LovecatScanner
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
 
-        var (ingredientsText, nutritionText) = ExtractSections(root);
-        var ingredients = ParseIngredients(ingredientsText);
+        var allSections   = ExtractAllSections(root);
+        var ingredientsText = allSections.GetValueOrDefault("內容/成分", "");
+        var nutritionText   = allSections.GetValueOrDefault("營養成分",  "");
 
         return new Product
         {
-            Url = $"{Origin}/products/{encodedHandle}",
-            Title = root.GetProperty("title").GetString() ?? "",
+            Url             = $"{Origin}/products/{encodedHandle}",
+            Title           = root.GetProperty("title").GetString() ?? "",
             IngredientsText = ingredientsText,
-            NutritionText = nutritionText,
-            Ingredients = ingredients,
-            ProteinPct = ParseNutrientPct(nutritionText, "蛋白質"),
-            FatPct = ParseNutrientPct(nutritionText, "脂肪"),
-            FiberPct = ParseNutrientPct(nutritionText, "粗纖維"),
+            NutritionText   = nutritionText,
+            Ingredients     = ParseIngredients(ingredientsText),
+            Sections        = allSections,
+            ProteinPct      = ParseNutrientPct(nutritionText, "蛋白質"),
+            FatPct          = ParseNutrientPct(nutritionText, "脂肪"),
+            FiberPct        = ParseNutrientPct(nutritionText, "粗纖維"),
         };
     }
 
-    // 切出「成分段落」和「營養分析段落」
-    private static (string ingredients, string nutrition) ExtractSections(JsonElement root)
+    // Splits product HTML into named sections, e.g. "內容/成分", "添加物", "營養成分", "代謝能"
+    private static Dictionary<string, string> ExtractAllSections(JsonElement root)
     {
         if (!root.TryGetProperty("other_descriptions", out var descs) ||
             descs.ValueKind != JsonValueKind.Array)
-            return ("", "");
+            return new();
 
         foreach (var d in descs.EnumerateArray())
         {
@@ -115,63 +131,80 @@ public class LovecatScanner
 
             var text = System.Net.WebUtility.HtmlDecode(Regex.Replace(html, "<.*?>", " "));
 
-            var ingIdx = text.IndexOf("內容/成分", StringComparison.Ordinal);
-            if (ingIdx < 0) continue;
+            // Find where the nutritional info block starts
+            var startM = SectionDefs[0].Pattern.Match(text);
+            if (!startM.Success) continue;
 
-            // 找各種結束邊界，取最早出現的
-            var endMarkers = new[] { "規格", "產地", "適用對象", "注意" };
+            // Find where the block ends (spec, origin, warnings, etc.)
             var endIdx = text.Length;
-            foreach (var m in endMarkers)
+            foreach (var m in BlockEndMarkers)
             {
-                var idx = text.IndexOf(m, ingIdx + 5, StringComparison.Ordinal);
-                if (idx > ingIdx && idx < endIdx) endIdx = idx;
+                var idx = text.IndexOf(m, startM.Index + startM.Length, StringComparison.Ordinal);
+                if (idx > startM.Index && idx < endIdx) endIdx = idx;
             }
 
-            var fullSection = text.Substring(ingIdx + "內容/成分".Length, endIdx - ingIdx - "內容/成分".Length).Trim();
+            var block = text[startM.Index..endIdx];
 
-            // 在這段裡再切出「營養分析」
-            var nutIdx = fullSection.IndexOf("營養分析", StringComparison.Ordinal);
-            string ingredients, nutrition;
-            if (nutIdx > 0)
+            // Find all known section headers within the block
+            var hits = new List<(int HeaderStart, int ContentStart, string Key)>();
+            foreach (var (key, pattern) in SectionDefs)
             {
-                ingredients = fullSection[..nutIdx].Trim();
-                nutrition = fullSection[(nutIdx + "營養分析".Length)..].Trim();
+                var m = pattern.Match(block);
+                if (m.Success)
+                    hits.Add((m.Index, m.Index + m.Length, key));
             }
-            else
+            hits.Sort((a, b) => a.HeaderStart.CompareTo(b.HeaderStart));
+
+            // Content for section[i] spans from ContentStart to the next section's HeaderStart
+            var result = new Dictionary<string, string>();
+            for (int i = 0; i < hits.Count; i++)
             {
-                ingredients = fullSection;
-                nutrition = "";
+                var contentEnd = i + 1 < hits.Count ? hits[i + 1].HeaderStart : block.Length;
+                result[hits[i].Key] = block[hits[i].ContentStart..contentEnd].Trim();
             }
 
-            return (ingredients, nutrition);
+            return result;
         }
 
-        return ("", "");
+        return new();
     }
 
-    // 把成分文字拆成個別成分名稱清單
-    private static List<string> ParseIngredients(string ingredientsText)
+    // Splits ingredient text into individual items, extracting name and optional percentage
+    private static List<Ingredient> ParseIngredients(string ingredientsText)
     {
-        if (string.IsNullOrWhiteSpace(ingredientsText)) return new List<string>();
+        if (string.IsNullOrWhiteSpace(ingredientsText)) return new();
 
-        // 在「營養添加物」前截斷，後面是維生素礦物質不算主要成分
+        // Stop before additive/supplement sub-section if it appears inline
         var cutIdx = ingredientsText.IndexOf("營養添加物", StringComparison.Ordinal);
         var text = cutIdx > 0 ? ingredientsText[..cutIdx] : ingredientsText;
 
-        return text
-            .Split(new[] { '、', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
-            .Select(s => s.Trim().Trim('。', '　', ' '))
-            // 移除全形與半形括號內容（如「最少4%」「FOS」等備註）
-            .Select(s => Regex.Replace(s, @"[\(（][^)）]*[\)）]", "").Trim())
-            .Where(s =>
-                s.Length >= 2 &&
-                s.Length <= 30 &&
-                !s.Contains('%') &&     // 過濾掉「蛋白質26%」這類
-                !s.Contains('：') &&    // 過濾掉「粗蛋白：22%」這類
-                !s.Contains(':') &&
-                !s.StartsWith("以"))    // 過濾掉「以下」等說明文字
-            .Distinct()
-            .ToList();
+        var seen   = new HashSet<string>();
+        var result = new List<Ingredient>();
+
+        foreach (var raw in text.Split(new[] { '、', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var s = raw.Trim().Trim('。', '　', ' ');
+            if (string.IsNullOrWhiteSpace(s)) continue;
+
+            // Extract percentage: "去骨雞肉 (20%)" → 20.0
+            double? pct = null;
+            var pctMatch = PctRegex.Match(s);
+            if (pctMatch.Success &&
+                double.TryParse(pctMatch.Groups[1].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out var p))
+                pct = p;
+
+            // Clean name: strip all parentheticals (including the % one)
+            var name = ParenRegex.Replace(s, "").Trim();
+
+            if (name.Length < 2 || name.Length > 30) continue;
+            if (name.Contains('%') || name.Contains('：') || name.Contains(':')) continue;
+            if (name.StartsWith("以")) continue;
+            if (!seen.Add(name)) continue;
+
+            result.Add(new Ingredient(name, pct));
+        }
+
+        return result;
     }
 
     private static double? ParseNutrientPct(string text, string nutrientName)
@@ -184,14 +217,17 @@ public class LovecatScanner
     }
 }
 
+public record Ingredient(string Name, double? Percentage);
+
 public class Product
 {
-    public string Url { get; set; } = "";
-    public string Title { get; set; } = "";
+    public string Url             { get; set; } = "";
+    public string Title           { get; set; } = "";
     public string IngredientsText { get; set; } = "";
-    public string NutritionText { get; set; } = "";
-    public List<string> Ingredients { get; set; } = new();
+    public string NutritionText   { get; set; } = "";
+    public List<Ingredient>           Ingredients { get; set; } = new();
+    public Dictionary<string, string> Sections    { get; set; } = new();
     public double? ProteinPct { get; set; }
-    public double? FatPct { get; set; }
-    public double? FiberPct { get; set; }
+    public double? FatPct     { get; set; }
+    public double? FiberPct   { get; set; }
 }
