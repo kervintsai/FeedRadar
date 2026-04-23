@@ -8,11 +8,25 @@ public class ProductRepository
     {
         // Railway 注入 DATABASE_URL；本地開發用 appsettings ConnectionStrings:Default
         var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
-        _connectionString = !string.IsNullOrEmpty(databaseUrl)
+        var raw = !string.IsNullOrEmpty(databaseUrl)
             ? databaseUrl
             : config.GetConnectionString("Default")
               ?? throw new InvalidOperationException("No database connection string configured.");
+        _connectionString = ParseConnectionString(raw);
         EnsureSchema();
+    }
+
+    // 將 postgresql://user:pass@host:port/db 轉成 Npgsql key-value 格式
+    private static string ParseConnectionString(string s)
+    {
+        if (!s.StartsWith("postgres://") && !s.StartsWith("postgresql://"))
+            return s;
+        var uri = new Uri(s);
+        var parts = uri.UserInfo.Split(':', 2);
+        var user = Uri.UnescapeDataString(parts[0]);
+        var pass = parts.Length > 1 ? Uri.UnescapeDataString(parts[1]) : "";
+        var db = uri.AbsolutePath.TrimStart('/');
+        return $"Host={uri.Host};Port={uri.Port};Database={db};Username={user};Password={pass};SSL Mode=Require;Trust Server Certificate=true";
     }
 
     private void EnsureSchema()

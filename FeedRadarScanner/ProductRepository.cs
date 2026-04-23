@@ -6,8 +6,21 @@ public class ProductRepository
 
     public ProductRepository(string connectionString)
     {
-        _connectionString = connectionString;
+        _connectionString = ParseConnectionString(connectionString);
         EnsureSchema();
+    }
+
+    // 將 postgresql://user:pass@host:port/db 轉成 Npgsql key-value 格式
+    private static string ParseConnectionString(string s)
+    {
+        if (!s.StartsWith("postgres://") && !s.StartsWith("postgresql://"))
+            return s;
+        var uri = new Uri(s);
+        var parts = uri.UserInfo.Split(':', 2);
+        var user = Uri.UnescapeDataString(parts[0]);
+        var pass = parts.Length > 1 ? Uri.UnescapeDataString(parts[1]) : "";
+        var db = uri.AbsolutePath.TrimStart('/');
+        return $"Host={uri.Host};Port={uri.Port};Database={db};Username={user};Password={pass};SSL Mode=Require;Trust Server Certificate=true";
     }
 
     private void EnsureSchema()
