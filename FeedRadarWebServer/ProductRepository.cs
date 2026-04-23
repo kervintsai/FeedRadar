@@ -101,10 +101,14 @@ public class ProductRepository
         foreach (var (col, def) in new[]
         {
             ("NutritionText", "TEXT NOT NULL DEFAULT ''"),
+            ("CaloriesText",  "TEXT"),
             ("ProteinPct",    "DOUBLE PRECISION"),
             ("FatPct",        "DOUBLE PRECISION"),
             ("FiberPct",      "DOUBLE PRECISION"),
-            ("CaloriesText",  "TEXT"),
+            ("Brand",         "TEXT NOT NULL DEFAULT ''"),
+            ("BrandEn",       "TEXT NOT NULL DEFAULT ''"),
+            ("BrandZh",       "TEXT NOT NULL DEFAULT ''"),
+            ("PetType",       "TEXT NOT NULL DEFAULT ''"),
         })
         {
             Exec(conn, $"ALTER TABLE Products ADD COLUMN IF NOT EXISTS {col} {def};");
@@ -167,7 +171,8 @@ public class ProductRepository
 
         var where = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
         cmd.CommandText = $"""
-            SELECT DISTINCT p.Id, p.Url, p.Title, p.IngredientsText, p.NutritionText,
+            SELECT DISTINCT p.Id, p.Url, p.Title, p.Brand, p.BrandEn, p.BrandZh, p.PetType,
+                   p.IngredientsText, p.NutritionText,
                    p.ProteinPct, p.FatPct, p.FiberPct, p.ScannedAt, p.CaloriesText
             FROM Products p
             {where}
@@ -184,11 +189,15 @@ public class ProductRepository
                 reader.GetString(2),
                 reader.GetString(3),
                 reader.GetString(4),
-                reader.IsDBNull(5) ? null : reader.GetDouble(5),
-                reader.IsDBNull(6) ? null : reader.GetDouble(6),
-                reader.IsDBNull(7) ? null : reader.GetDouble(7),
+                reader.GetString(5),
+                reader.GetString(6),
+                reader.GetString(7),
                 reader.GetString(8),
-                CaloriesText: reader.IsDBNull(9) ? null : reader.GetString(9)
+                reader.IsDBNull(9)  ? null : reader.GetDouble(9),
+                reader.IsDBNull(10) ? null : reader.GetDouble(10),
+                reader.IsDBNull(11) ? null : reader.GetDouble(11),
+                reader.GetString(12),
+                CaloriesText: reader.IsDBNull(13) ? null : reader.GetString(13)
             ));
         }
         return results;
@@ -204,7 +213,8 @@ public class ProductRepository
         using (var cmd = conn.CreateCommand())
         {
             cmd.CommandText = """
-                SELECT Id, Url, Title, IngredientsText, NutritionText,
+                SELECT Id, Url, Title, Brand, BrandEn, BrandZh, PetType,
+                       IngredientsText, NutritionText,
                        ProteinPct, FatPct, FiberPct, ScannedAt, CaloriesText
                 FROM Products WHERE Id = @id;
                 """;
@@ -213,12 +223,13 @@ public class ProductRepository
             if (!reader.Read()) return null;
             dto = new ProductDto(
                 reader.GetInt32(0), reader.GetString(1), reader.GetString(2),
-                reader.GetString(3), reader.GetString(4),
-                reader.IsDBNull(5) ? null : reader.GetDouble(5),
-                reader.IsDBNull(6) ? null : reader.GetDouble(6),
-                reader.IsDBNull(7) ? null : reader.GetDouble(7),
-                reader.GetString(8),
-                CaloriesText: reader.IsDBNull(9) ? null : reader.GetString(9)
+                reader.GetString(3), reader.GetString(4), reader.GetString(5), reader.GetString(6),
+                reader.GetString(7), reader.GetString(8),
+                reader.IsDBNull(9)  ? null : reader.GetDouble(9),
+                reader.IsDBNull(10) ? null : reader.GetDouble(10),
+                reader.IsDBNull(11) ? null : reader.GetDouble(11),
+                reader.GetString(12),
+                CaloriesText: reader.IsDBNull(13) ? null : reader.GetString(13)
             );
         }
 

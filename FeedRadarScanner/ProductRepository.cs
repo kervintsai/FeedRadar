@@ -43,25 +43,6 @@ public class ProductRepository
             """);
 
         Exec(conn, """
-            CREATE TABLE IF NOT EXISTS Ingredients (
-                Id       SERIAL PRIMARY KEY,
-                Name     TEXT UNIQUE NOT NULL,
-                BaseName TEXT NOT NULL DEFAULT ''
-            );
-            """);
-
-        Exec(conn, """
-            CREATE TABLE IF NOT EXISTS ProductIngredients (
-                ProductId    INTEGER NOT NULL,
-                IngredientId INTEGER NOT NULL,
-                SortOrder    INTEGER NOT NULL DEFAULT 0,
-                Percentage   DOUBLE PRECISION,
-                AmountText   TEXT,
-                PRIMARY KEY (ProductId, IngredientId)
-            );
-            """);
-
-        Exec(conn, """
             CREATE TABLE IF NOT EXISTS ProductSections (
                 Id          SERIAL PRIMARY KEY,
                 ProductId   INTEGER NOT NULL,
@@ -71,22 +52,21 @@ public class ProductRepository
             );
             """);
 
-        // Idempotent column additions for existing deployments
         foreach (var (col, def) in new[]
         {
             ("NutritionText", "TEXT NOT NULL DEFAULT ''"),
+            ("CaloriesText",  "TEXT"),
             ("ProteinPct",    "DOUBLE PRECISION"),
             ("FatPct",        "DOUBLE PRECISION"),
             ("FiberPct",      "DOUBLE PRECISION"),
+            ("Brand",         "TEXT NOT NULL DEFAULT ''"),
+            ("BrandEn",       "TEXT NOT NULL DEFAULT ''"),
+            ("BrandZh",       "TEXT NOT NULL DEFAULT ''"),
+            ("PetType",       "TEXT NOT NULL DEFAULT ''"),
         })
         {
             Exec(conn, $"ALTER TABLE Products ADD COLUMN IF NOT EXISTS {col} {def};");
         }
-
-        Exec(conn, "ALTER TABLE ProductIngredients ADD COLUMN IF NOT EXISTS Percentage DOUBLE PRECISION;");
-        Exec(conn, "ALTER TABLE ProductIngredients ADD COLUMN IF NOT EXISTS AmountText TEXT;");
-        Exec(conn, "ALTER TABLE Ingredients ADD COLUMN IF NOT EXISTS BaseName TEXT NOT NULL DEFAULT ''");
-        Exec(conn, "ALTER TABLE Products ADD COLUMN IF NOT EXISTS CaloriesText TEXT;");
     }
 
     public void Upsert(Product product)
@@ -97,10 +77,18 @@ public class ProductRepository
         // 1. Upsert product row, returning its Id
         var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO Products (Url, Title, IngredientsText, NutritionText, CaloriesText, ProteinPct, FatPct, FiberPct, ScannedAt)
-            VALUES (@url, @title, @ingredients, @nutrition, @calories, @protein, @fat, @fiber, @scannedAt)
+            INSERT INTO Products (Url, Title, Brand, BrandEn, BrandZh, PetType,
+                                  IngredientsText, NutritionText, CaloriesText,
+                                  ProteinPct, FatPct, FiberPct, ScannedAt)
+            VALUES (@url, @title, @brand, @brandEn, @brandZh, @petType,
+                    @ingredients, @nutrition, @calories,
+                    @protein, @fat, @fiber, @scannedAt)
             ON CONFLICT (Url) DO UPDATE SET
                 Title           = EXCLUDED.Title,
+                Brand           = EXCLUDED.Brand,
+                BrandEn         = EXCLUDED.BrandEn,
+                BrandZh         = EXCLUDED.BrandZh,
+                PetType         = EXCLUDED.PetType,
                 IngredientsText = EXCLUDED.IngredientsText,
                 NutritionText   = EXCLUDED.NutritionText,
                 CaloriesText    = EXCLUDED.CaloriesText,
@@ -110,50 +98,20 @@ public class ProductRepository
                 ScannedAt       = EXCLUDED.ScannedAt
             RETURNING Id;
             """;
-        cmd.Parameters.AddWithValue("url",        product.Url);
-        cmd.Parameters.AddWithValue("title",      product.Title);
+        cmd.Parameters.AddWithValue("url",         product.Url);
+        cmd.Parameters.AddWithValue("title",       product.Title);
+        cmd.Parameters.AddWithValue("brand",       product.Brand);
+        cmd.Parameters.AddWithValue("brandEn",     product.BrandEn);
+        cmd.Parameters.AddWithValue("brandZh",     product.BrandZh);
+        cmd.Parameters.AddWithValue("petType",     product.PetType);
         cmd.Parameters.AddWithValue("ingredients", product.IngredientsText);
-        cmd.Parameters.AddWithValue("nutrition",  product.NutritionText);
-        cmd.Parameters.AddWithValue("calories",   product.CaloriesText as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("protein",    product.ProteinPct as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("fat",        product.FatPct    as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("fiber",      product.FiberPct  as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("scannedAt",  DateTime.UtcNow.ToString("O"));
+        cmd.Parameters.AddWithValue("nutrition",   product.NutritionText);
+        cmd.Parameters.AddWithValue("calories",    product.CaloriesText as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("protein",     product.ProteinPct as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("fat",         product.FatPct    as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("fiber",       product.FiberPct  as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("scannedAt",   DateTime.UtcNow.ToString("O"));
         var productId = (int)(cmd.ExecuteScalar() ?? 0);
-
-        // 2. Replace product ingredients
-        var delCmd = conn.CreateCommand();
-        delCmd.CommandText = "DELETE FROM ProductIngredients WHERE ProductId = @pid;";
-        delCmd.Parameters.AddWithValue("pid", productId);
-        delCmd.ExecuteNonQuery();
-
-        for (int i = 0; i < product.Ingredients.Count; i++)
-        {
-            var ingredient = product.Ingredients[i];
-
-            var ingCmd = conn.CreateCommand();
-            ingCmd.CommandText = """
-                INSERT INTO Ingredients (Name, BaseName) VALUES (@name, @baseName)
-                ON CONFLICT (Name) DO UPDATE SET BaseName = EXCLUDED.BaseName
-                RETURNING Id;
-                """;
-            ingCmd.Parameters.AddWithValue("name",     ingredient.Name);
-            ingCmd.Parameters.AddWithValue("baseName", ingredient.BaseName);
-            var ingredientId = (int)(ingCmd.ExecuteScalar() ?? 0);
-
-            var piCmd = conn.CreateCommand();
-            piCmd.CommandText = """
-                INSERT INTO ProductIngredients (ProductId, IngredientId, SortOrder, Percentage, AmountText)
-                VALUES (@pid, @iid, @order, @pct, @amt)
-                ON CONFLICT DO NOTHING;
-                """;
-            piCmd.Parameters.AddWithValue("pid",   productId);
-            piCmd.Parameters.AddWithValue("iid",   ingredientId);
-            piCmd.Parameters.AddWithValue("order", i);
-            piCmd.Parameters.AddWithValue("pct",   ingredient.Percentage as object ?? DBNull.Value);
-            piCmd.Parameters.AddWithValue("amt",   ingredient.AmountText as object ?? DBNull.Value);
-            piCmd.ExecuteNonQuery();
-        }
 
         // 3. Replace product sections
         var delSectCmd = conn.CreateCommand();

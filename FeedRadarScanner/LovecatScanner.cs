@@ -58,6 +58,31 @@ public class LovecatScanner
         return name;
     }
 
+    // CJK Unified Ideographs range (covers almost all common Chinese characters)
+    private static readonly Regex CjkRegex    = new(@"[一-鿿㐀-䶿]+", RegexOptions.Compiled);
+    private static readonly Regex BrandRegex  = new(@"[【\[]([^】\]]+)[】\]]",         RegexOptions.Compiled);
+    private static readonly Regex DogRegex    = new(@"犬|幼犬|成犬|老犬|狗",            RegexOptions.Compiled);
+    private static readonly Regex CatRegex    = new(@"貓|幼貓|成貓|老貓",               RegexOptions.Compiled);
+
+    private static (string Brand, string BrandEn, string BrandZh) ExtractBrand(string title)
+    {
+        var m = BrandRegex.Match(title);
+        if (!m.Success) return ("", "", "");
+        var brand   = m.Groups[1].Value.Trim();
+        var brandZh = string.Concat(CjkRegex.Matches(brand).Select(x => x.Value));
+        var brandEn = CjkRegex.Replace(brand, " ").Trim();
+        brandEn     = Regex.Replace(brandEn, @"\s+", " ").Trim();
+        return (brand, brandEn, brandZh);
+    }
+
+    private static string DetectPetType(string title, Dictionary<string, string> sections)
+    {
+        var searchText = title + " " + sections.GetValueOrDefault("適口性", "");
+        if (DogRegex.IsMatch(searchText)) return "狗";
+        if (CatRegex.IsMatch(searchText)) return "貓";
+        return "其他";
+    }
+
     public async Task<List<Product>> ScanAsync(string collectionUrl, CancellationToken ct = default)
     {
         var handles = await GetAllProductHandlesAsync(collectionUrl, ct);
@@ -153,12 +178,19 @@ public class LovecatScanner
         if (!string.IsNullOrWhiteSpace(compositionText))
             sections["成分"] = compositionText;
 
+        var title = root.GetProperty("title").GetString() ?? "";
+        var (brand, brandEn, brandZh) = ExtractBrand(title);
+
         return new Product
         {
             Url             = $"{Origin}/products/{encodedHandle}",
-            Title           = root.GetProperty("title").GetString() ?? "",
+            Title           = title,
+            Brand           = brand,
+            BrandEn         = brandEn,
+            BrandZh         = brandZh,
+            PetType         = DetectPetType(title, sections),
             IngredientsText = ingredientsText,
-            NutritionText   = compositionText,   // 成分（來自 內容/成分 區塊的第二段）
+            NutritionText   = compositionText,
             Ingredients     = ParseIngredients(ingredientsText),
             Sections        = sections,
             CaloriesText    = ParseCaloriesText(sections),
@@ -349,6 +381,10 @@ public class Product
 {
     public string Url             { get; set; } = "";
     public string Title           { get; set; } = "";
+    public string Brand           { get; set; } = "";
+    public string BrandEn         { get; set; } = "";
+    public string BrandZh         { get; set; } = "";
+    public string PetType         { get; set; } = "";
     public string IngredientsText { get; set; } = "";
     public string NutritionText   { get; set; } = "";
     public List<Ingredient>           Ingredients { get; set; } = new();
