@@ -61,8 +61,13 @@ public class LovecatScanner
     // CJK Unified Ideographs range (covers almost all common Chinese characters)
     private static readonly Regex CjkRegex    = new(@"[一-鿿㐀-䶿]+", RegexOptions.Compiled);
     private static readonly Regex BrandRegex  = new(@"[【\[]([^】\]]+)[】\]]",         RegexOptions.Compiled);
-    private static readonly Regex DogRegex    = new(@"犬|幼犬|成犬|老犬|狗",            RegexOptions.Compiled);
-    private static readonly Regex CatRegex    = new(@"貓|幼貓|成貓|老貓",               RegexOptions.Compiled);
+    private static readonly Regex DogRegex          = new(@"犬|狗",                                      RegexOptions.Compiled);
+    private static readonly Regex CatRegex          = new(@"貓",                                          RegexOptions.Compiled);
+    private static readonly Regex PuppyRegex        = new(@"幼犬|幼年|幼齡|puppy|junior",                 RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex SeniorRegex       = new(@"老犬|高齡|熟齡|senior",                       RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex AllLifeRegex      = new(@"全齡|全犬齡|全年齡",                           RegexOptions.Compiled);
+    private static readonly Regex AdultRegex        = new(@"成犬|adult",                                  RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex PrescriptionRegex = new(@"處方|prescription|\bRx\b",                    RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static (string Brand, string BrandEn, string BrandZh) ExtractBrand(string title)
     {
@@ -81,6 +86,21 @@ public class LovecatScanner
         if (DogRegex.IsMatch(searchText)) return "狗";
         if (CatRegex.IsMatch(searchText)) return "貓";
         return "其他";
+    }
+
+    private static string DetectLifeStage(string title)
+    {
+        if (PuppyRegex.IsMatch(title))   return "幼犬";
+        if (SeniorRegex.IsMatch(title))  return "老犬";
+        if (AllLifeRegex.IsMatch(title)) return "全齡";
+        if (AdultRegex.IsMatch(title))   return "成犬";
+        return "其他";
+    }
+
+    private static bool DetectPrescription(string title, Dictionary<string, string> sections)
+    {
+        var text = title + " " + string.Join(" ", sections.Values);
+        return PrescriptionRegex.IsMatch(text);
     }
 
     public async Task<List<Product>> ScanAsync(string collectionUrl, CancellationToken ct = default)
@@ -183,12 +203,14 @@ public class LovecatScanner
 
         return new Product
         {
-            Url             = $"{Origin}/products/{encodedHandle}",
-            Title           = title,
-            Brand           = brand,
-            BrandEn         = brandEn,
-            BrandZh         = brandZh,
-            PetType         = DetectPetType(title, sections),
+            Url            = $"{Origin}/products/{encodedHandle}",
+            Title          = title,
+            Brand          = brand,
+            BrandEn        = brandEn,
+            BrandZh        = brandZh,
+            PetType        = DetectPetType(title, sections),
+            LifeStage      = DetectLifeStage(title),
+            IsPrescription = DetectPrescription(title, sections),
             IngredientsText = ingredientsText,
             NutritionText   = compositionText,
             Ingredients     = ParseIngredients(ingredientsText),
@@ -379,12 +401,14 @@ public record Ingredient(string Name, double? Percentage, string BaseName, strin
 
 public class Product
 {
-    public string Url             { get; set; } = "";
-    public string Title           { get; set; } = "";
-    public string Brand           { get; set; } = "";
-    public string BrandEn         { get; set; } = "";
-    public string BrandZh         { get; set; } = "";
-    public string PetType         { get; set; } = "";
+    public string Url            { get; set; } = "";
+    public string Title          { get; set; } = "";
+    public string Brand          { get; set; } = "";
+    public string BrandEn        { get; set; } = "";
+    public string BrandZh        { get; set; } = "";
+    public string PetType        { get; set; } = "";
+    public string LifeStage      { get; set; } = "";
+    public bool   IsPrescription { get; set; }
     public string IngredientsText { get; set; } = "";
     public string NutritionText   { get; set; } = "";
     public List<Ingredient>           Ingredients { get; set; } = new();

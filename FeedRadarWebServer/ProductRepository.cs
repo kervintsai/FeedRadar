@@ -105,10 +105,12 @@ public class ProductRepository
             ("ProteinPct",    "DOUBLE PRECISION"),
             ("FatPct",        "DOUBLE PRECISION"),
             ("FiberPct",      "DOUBLE PRECISION"),
-            ("Brand",         "TEXT NOT NULL DEFAULT ''"),
-            ("BrandEn",       "TEXT NOT NULL DEFAULT ''"),
-            ("BrandZh",       "TEXT NOT NULL DEFAULT ''"),
-            ("PetType",       "TEXT NOT NULL DEFAULT ''"),
+            ("Brand",          "TEXT NOT NULL DEFAULT ''"),
+            ("BrandEn",        "TEXT NOT NULL DEFAULT ''"),
+            ("BrandZh",        "TEXT NOT NULL DEFAULT ''"),
+            ("PetType",        "TEXT NOT NULL DEFAULT ''"),
+            ("LifeStage",      "TEXT NOT NULL DEFAULT ''"),
+            ("IsPrescription", "BOOLEAN NOT NULL DEFAULT FALSE"),
         })
         {
             Exec(conn, $"ALTER TABLE Products ADD COLUMN IF NOT EXISTS {col} {def};");
@@ -128,8 +130,28 @@ public class ProductRepository
         return result;
     }
 
+    public List<BrandDto> GetBrands()
+    {
+        using var conn = new NpgsqlConnection(_connectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT Brand, BrandEn, BrandZh, COUNT(*)::int
+            FROM Products
+            WHERE Brand != ''
+            GROUP BY Brand, BrandEn, BrandZh
+            ORDER BY Brand;
+            """;
+        using var reader = cmd.ExecuteReader();
+        var result = new List<BrandDto>();
+        while (reader.Read())
+            result.Add(new BrandDto(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetInt32(3)));
+        return result;
+    }
+
     public List<ProductDto> GetAll(string? q = null, List<string>? ingredients = null,
-        double? minProtein = null, double? maxFat = null, double? maxFiber = null)
+        double? minProtein = null, double? maxFat = null, double? maxFiber = null,
+        string? brand = null, string? lifeStage = null, bool? isPrescription = null)
     {
         using var conn = new NpgsqlConnection(_connectionString);
         conn.Open();
@@ -168,10 +190,26 @@ public class ProductRepository
             conditions.Add("p.FiberPct <= @maxFiber");
             cmd.Parameters.AddWithValue("maxFiber", maxFiber.Value);
         }
+        if (!string.IsNullOrWhiteSpace(brand))
+        {
+            conditions.Add("p.Brand ILIKE @brand");
+            cmd.Parameters.AddWithValue("brand", $"%{brand}%");
+        }
+        if (!string.IsNullOrWhiteSpace(lifeStage))
+        {
+            conditions.Add("p.LifeStage = @lifeStage");
+            cmd.Parameters.AddWithValue("lifeStage", lifeStage);
+        }
+        if (isPrescription.HasValue)
+        {
+            conditions.Add("p.IsPrescription = @isPrescription");
+            cmd.Parameters.AddWithValue("isPrescription", isPrescription.Value);
+        }
 
         var where = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
         cmd.CommandText = $"""
             SELECT DISTINCT p.Id, p.Url, p.Title, p.Brand, p.BrandEn, p.BrandZh, p.PetType,
+                   p.LifeStage, p.IsPrescription,
                    p.IngredientsText, p.NutritionText,
                    p.ProteinPct, p.FatPct, p.FiberPct, p.ScannedAt, p.CaloriesText
             FROM Products p
@@ -192,12 +230,14 @@ public class ProductRepository
                 reader.GetString(5),
                 reader.GetString(6),
                 reader.GetString(7),
-                reader.GetString(8),
-                reader.IsDBNull(9)  ? null : reader.GetDouble(9),
-                reader.IsDBNull(10) ? null : reader.GetDouble(10),
+                reader.GetBoolean(8),
+                reader.GetString(9),
+                reader.GetString(10),
                 reader.IsDBNull(11) ? null : reader.GetDouble(11),
-                reader.GetString(12),
-                CaloriesText: reader.IsDBNull(13) ? null : reader.GetString(13)
+                reader.IsDBNull(12) ? null : reader.GetDouble(12),
+                reader.IsDBNull(13) ? null : reader.GetDouble(13),
+                reader.GetString(14),
+                CaloriesText: reader.IsDBNull(15) ? null : reader.GetString(15)
             ));
         }
         return results;
@@ -214,6 +254,7 @@ public class ProductRepository
         {
             cmd.CommandText = """
                 SELECT Id, Url, Title, Brand, BrandEn, BrandZh, PetType,
+                       LifeStage, IsPrescription,
                        IngredientsText, NutritionText,
                        ProteinPct, FatPct, FiberPct, ScannedAt, CaloriesText
                 FROM Products WHERE Id = @id;
@@ -224,12 +265,13 @@ public class ProductRepository
             dto = new ProductDto(
                 reader.GetInt32(0), reader.GetString(1), reader.GetString(2),
                 reader.GetString(3), reader.GetString(4), reader.GetString(5), reader.GetString(6),
-                reader.GetString(7), reader.GetString(8),
-                reader.IsDBNull(9)  ? null : reader.GetDouble(9),
-                reader.IsDBNull(10) ? null : reader.GetDouble(10),
+                reader.GetString(7), reader.GetBoolean(8),
+                reader.GetString(9), reader.GetString(10),
                 reader.IsDBNull(11) ? null : reader.GetDouble(11),
-                reader.GetString(12),
-                CaloriesText: reader.IsDBNull(13) ? null : reader.GetString(13)
+                reader.IsDBNull(12) ? null : reader.GetDouble(12),
+                reader.IsDBNull(13) ? null : reader.GetDouble(13),
+                reader.GetString(14),
+                CaloriesText: reader.IsDBNull(15) ? null : reader.GetString(15)
             );
         }
 

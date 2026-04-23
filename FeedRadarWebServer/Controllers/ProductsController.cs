@@ -13,12 +13,15 @@ public class ProductsController(ProductRepository repo, IMemoryCache cache) : Co
         [FromQuery] List<string>? ingredient,
         [FromQuery] double? minProtein,
         [FromQuery] double? maxFat,
-        [FromQuery] double? maxFiber)
+        [FromQuery] double? maxFiber,
+        [FromQuery] string? brand,
+        [FromQuery] string? lifeStage,
+        [FromQuery] bool? isPrescription)
     {
-        var cacheKey = $"products:{q}:{string.Join(",", ingredient ?? [])}:{minProtein}:{maxFat}:{maxFiber}";
+        var cacheKey = $"products:{q}:{string.Join(",", ingredient ?? [])}:{minProtein}:{maxFat}:{maxFiber}:{brand}:{lifeStage}:{isPrescription}";
         if (!cache.TryGetValue(cacheKey, out List<ProductDto>? products))
         {
-            products = repo.GetAll(q, ingredient, minProtein, maxFat, maxFiber);
+            products = repo.GetAll(q, ingredient, minProtein, maxFat, maxFiber, brand, lifeStage, isPrescription);
             cache.Set(cacheKey, products, CacheTtl);
         }
         return Ok(products);

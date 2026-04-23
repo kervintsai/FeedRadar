@@ -59,10 +59,12 @@ public class ProductRepository
             ("ProteinPct",    "DOUBLE PRECISION"),
             ("FatPct",        "DOUBLE PRECISION"),
             ("FiberPct",      "DOUBLE PRECISION"),
-            ("Brand",         "TEXT NOT NULL DEFAULT ''"),
-            ("BrandEn",       "TEXT NOT NULL DEFAULT ''"),
-            ("BrandZh",       "TEXT NOT NULL DEFAULT ''"),
-            ("PetType",       "TEXT NOT NULL DEFAULT ''"),
+            ("Brand",          "TEXT NOT NULL DEFAULT ''"),
+            ("BrandEn",        "TEXT NOT NULL DEFAULT ''"),
+            ("BrandZh",        "TEXT NOT NULL DEFAULT ''"),
+            ("PetType",        "TEXT NOT NULL DEFAULT ''"),
+            ("LifeStage",      "TEXT NOT NULL DEFAULT ''"),
+            ("IsPrescription", "BOOLEAN NOT NULL DEFAULT FALSE"),
         })
         {
             Exec(conn, $"ALTER TABLE Products ADD COLUMN IF NOT EXISTS {col} {def};");
@@ -77,18 +79,20 @@ public class ProductRepository
         // 1. Upsert product row, returning its Id
         var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO Products (Url, Title, Brand, BrandEn, BrandZh, PetType,
+            INSERT INTO Products (Url, Title, Brand, BrandEn, BrandZh, PetType, LifeStage, IsPrescription,
                                   IngredientsText, NutritionText, CaloriesText,
                                   ProteinPct, FatPct, FiberPct, ScannedAt)
-            VALUES (@url, @title, @brand, @brandEn, @brandZh, @petType,
+            VALUES (@url, @title, @brand, @brandEn, @brandZh, @petType, @lifeStage, @isPrescription,
                     @ingredients, @nutrition, @calories,
                     @protein, @fat, @fiber, @scannedAt)
             ON CONFLICT (Url) DO UPDATE SET
-                Title           = EXCLUDED.Title,
-                Brand           = EXCLUDED.Brand,
-                BrandEn         = EXCLUDED.BrandEn,
-                BrandZh         = EXCLUDED.BrandZh,
-                PetType         = EXCLUDED.PetType,
+                Title          = EXCLUDED.Title,
+                Brand          = EXCLUDED.Brand,
+                BrandEn        = EXCLUDED.BrandEn,
+                BrandZh        = EXCLUDED.BrandZh,
+                PetType        = EXCLUDED.PetType,
+                LifeStage      = EXCLUDED.LifeStage,
+                IsPrescription = EXCLUDED.IsPrescription,
                 IngredientsText = EXCLUDED.IngredientsText,
                 NutritionText   = EXCLUDED.NutritionText,
                 CaloriesText    = EXCLUDED.CaloriesText,
@@ -98,19 +102,21 @@ public class ProductRepository
                 ScannedAt       = EXCLUDED.ScannedAt
             RETURNING Id;
             """;
-        cmd.Parameters.AddWithValue("url",         product.Url);
-        cmd.Parameters.AddWithValue("title",       product.Title);
-        cmd.Parameters.AddWithValue("brand",       product.Brand);
-        cmd.Parameters.AddWithValue("brandEn",     product.BrandEn);
-        cmd.Parameters.AddWithValue("brandZh",     product.BrandZh);
-        cmd.Parameters.AddWithValue("petType",     product.PetType);
-        cmd.Parameters.AddWithValue("ingredients", product.IngredientsText);
-        cmd.Parameters.AddWithValue("nutrition",   product.NutritionText);
-        cmd.Parameters.AddWithValue("calories",    product.CaloriesText as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("protein",     product.ProteinPct as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("fat",         product.FatPct    as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("fiber",       product.FiberPct  as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("scannedAt",   DateTime.UtcNow.ToString("O"));
+        cmd.Parameters.AddWithValue("url",            product.Url);
+        cmd.Parameters.AddWithValue("title",          product.Title);
+        cmd.Parameters.AddWithValue("brand",          product.Brand);
+        cmd.Parameters.AddWithValue("brandEn",        product.BrandEn);
+        cmd.Parameters.AddWithValue("brandZh",        product.BrandZh);
+        cmd.Parameters.AddWithValue("petType",        product.PetType);
+        cmd.Parameters.AddWithValue("lifeStage",      product.LifeStage);
+        cmd.Parameters.AddWithValue("isPrescription", product.IsPrescription);
+        cmd.Parameters.AddWithValue("ingredients",    product.IngredientsText);
+        cmd.Parameters.AddWithValue("nutrition",      product.NutritionText);
+        cmd.Parameters.AddWithValue("calories",       product.CaloriesText as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("protein",        product.ProteinPct as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("fat",            product.FatPct    as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("fiber",          product.FiberPct  as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("scannedAt",      DateTime.UtcNow.ToString("O"));
         var productId = (int)(cmd.ExecuteScalar() ?? 0);
 
         // 3. Replace product sections
