@@ -111,18 +111,18 @@ public class ProductRepository
         }
     }
 
-    public List<string> GetIngredients() => new()
+    public List<IngredientDto> GetIngredients()
     {
-        // 陸上動物
-        "雞", "火雞", "鴨", "鵝", "鵪鶉",
-        "豬", "牛", "羊", "鹿", "袋鼠", "兔", "鴯鶓",
-        // 魚類
-        "鮭魚", "鱈魚", "鯡魚", "鯖魚", "鮪魚", "鰹魚",
-        "沙丁魚", "鯷魚", "鰈魚", "比目魚", "鱒魚",
-        "鱸魚", "鰻魚", "平鮋", "虱目魚",
-        // 海鮮
-        "磷蝦", "貽貝", "干貝", "龍蝦", "螃蟹", "鱉",
-    };
+        using var conn = new NpgsqlConnection(_connectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT Name, Category FROM Ingredients ORDER BY Category, Name;";
+        using var reader = cmd.ExecuteReader();
+        var result = new List<IngredientDto>();
+        while (reader.Read())
+            result.Add(new IngredientDto(reader.GetString(0), reader.GetString(1)));
+        return result;
+    }
 
     public List<ProductDto> GetAll(string? q = null, List<string>? ingredients = null,
         double? minProtein = null, double? maxFat = null, double? maxFiber = null)

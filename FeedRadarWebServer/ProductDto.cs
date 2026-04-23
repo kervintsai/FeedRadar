@@ -1,3 +1,5 @@
+public record IngredientDto(string Name, string Category);
+
 public record ProductDto(
     int Id,
     string Url,

@@ -8,7 +8,7 @@ public class IngredientsController(ProductRepository repo, IMemoryCache cache) :
     [HttpGet]
     public IActionResult GetAll()
     {
-        if (!cache.TryGetValue("ingredients", out List<string>? ingredients))
+        if (!cache.TryGetValue("ingredients", out List<IngredientDto>? ingredients))
         {
             ingredients = repo.GetIngredients();
             cache.Set("ingredients", ingredients, TimeSpan.FromMinutes(30));
