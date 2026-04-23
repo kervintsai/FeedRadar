@@ -16,19 +16,21 @@ public class LovecatScanner
 
     private const string Origin = "https://www.lovecat.com.tw";
 
-    // Section header patterns in order of expected appearance
+    // Section header patterns in order of expected appearance.
+    // "內容" matches "內容" or "內容/成分"; "成分" is NOT a separate header —
+    // it is extracted by splitting the 內容 block at the first nutrition keyword.
     private static readonly (string Key, Regex Pattern)[] SectionDefs =
     {
-        // "內容" matches "內容" or "內容/成分" as the ingredient list header
-        ("內容",    new Regex(@"內容(?:/成分)?",                  RegexOptions.Compiled)),
-        // "成分" as a standalone section (not preceded by "/" or CJK char like "營養")
-        ("成分",    new Regex(@"(?<![/一-鿿])成分",       RegexOptions.Compiled)),
-        ("添加物",  new Regex(@"添加物(?:[（(][^）)]*[）)])?",    RegexOptions.Compiled)),
-        ("營養成分", new Regex(@"營養(?:成分(?:及含量)?|分析)",   RegexOptions.Compiled)),
-        ("代謝能",  new Regex(@"代謝能",                          RegexOptions.Compiled)),
-        ("適口性",  new Regex(@"適口性",                          RegexOptions.Compiled)),
-        ("保存方式", new Regex(@"保存方式",                       RegexOptions.Compiled)),
+        ("內容",    new Regex(@"內容(?:/成分)?",                 RegexOptions.Compiled)),
+        ("添加物",  new Regex(@"添加物(?:[（(][^）)]*[）)])?",   RegexOptions.Compiled)),
+        ("營養成分", new Regex(@"營養(?:成分(?:及含量)?|分析)",  RegexOptions.Compiled)),
+        ("代謝能",  new Regex(@"代謝能",                         RegexOptions.Compiled)),
+        ("適口性",  new Regex(@"適口性",                         RegexOptions.Compiled)),
+        ("保存方式", new Regex(@"保存方式",                      RegexOptions.Compiled)),
     };
+
+    // Markers that indicate the start of embedded nutrition data within the 內容 block
+    private static readonly string[] NutritionMarkers = { "蛋白質", "粗蛋白" };
 
     private static readonly string[] BlockEndMarkers = { "規格", "產地", "適用對象", "注意" };
     private static readonly Regex PctRegex   = new(@"[（(](\d+\.?\d*)%[）)]", RegexOptions.Compiled);
@@ -113,9 +115,28 @@ public class LovecatScanner
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
 
-        var allSections     = ExtractAllSections(root);
-        var ingredientsText = allSections.GetValueOrDefault("內容",    "");
-        var nutritionText   = allSections.GetValueOrDefault("營養成分", "");
+        var allSections = ExtractAllSections(root);
+        var rawBlock    = allSections.GetValueOrDefault("內容", "");
+
+        // Split the 內容 block: ingredient list (before first nutrition keyword)
+        // and 成分 string (from that keyword onwards, if no separate 營養成分 section).
+        var splitIdx = NutritionMarkers
+            .Select(m => rawBlock.IndexOf(m, StringComparison.Ordinal))
+            .Where(i => i > 0)
+            .DefaultIfEmpty(-1)
+            .Min();
+
+        var ingredientsText = splitIdx > 0 ? rawBlock[..splitIdx].Trim() : rawBlock;
+        var embeddedNutrition = splitIdx > 0 ? rawBlock[splitIdx..].Trim() : "";
+
+        var nutritionText = allSections.GetValueOrDefault("營養成分", embeddedNutrition);
+
+        // Build Sections: exclude 內容 (stored separately); add 成分 if embedded
+        var sections = allSections
+            .Where(kv => kv.Key != "內容")
+            .ToDictionary(kv => kv.Key, kv => kv.Value);
+        if (!string.IsNullOrWhiteSpace(embeddedNutrition) && !sections.ContainsKey("成分"))
+            sections["成分"] = embeddedNutrition;
 
         return new Product
         {
@@ -124,7 +145,7 @@ public class LovecatScanner
             IngredientsText = ingredientsText,
             NutritionText   = nutritionText,
             Ingredients     = ParseIngredients(ingredientsText),
-            Sections        = allSections,
+            Sections        = sections,
             ProteinPct      = ParseNutrientPct(nutritionText, "蛋白質"),
             FatPct          = ParseNutrientPct(nutritionText, "脂肪"),
             FiberPct        = ParseNutrientPct(nutritionText, "粗纖維"),

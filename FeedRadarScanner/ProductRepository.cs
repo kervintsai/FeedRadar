@@ -169,36 +169,13 @@ public class ProductRepository
         }
     }
 
-    // Removes products whose URLs are no longer in the scanned collection,
-    // then cleans up orphaned ingredients.
-    public void DeleteStale(IEnumerable<string> currentUrls)
+    // Clears all product data and resets identity sequences before a fresh scan.
+    public void TruncateAll()
     {
-        var urls = currentUrls.ToArray();
-        if (urls.Length == 0) return;
-
         using var conn = new NpgsqlConnection(_connectionString);
         conn.Open();
-
-        foreach (var table in new[] { "ProductSections", "ProductIngredients" })
-        {
-            var cmd = conn.CreateCommand();
-            cmd.CommandText = $"DELETE FROM {table} WHERE ProductId IN (SELECT Id FROM Products WHERE Url != ALL(@urls));";
-            cmd.Parameters.AddWithValue("urls", urls);
-            cmd.ExecuteNonQuery();
-        }
-
-        var delCmd = conn.CreateCommand();
-        delCmd.CommandText = "DELETE FROM Products WHERE Url != ALL(@urls);";
-        delCmd.Parameters.AddWithValue("urls", urls);
-        var deleted = delCmd.ExecuteNonQuery();
-
-        if (deleted > 0)
-        {
-            var orphanCmd = conn.CreateCommand();
-            orphanCmd.CommandText = "DELETE FROM Ingredients WHERE Id NOT IN (SELECT DISTINCT IngredientId FROM ProductIngredients);";
-            orphanCmd.ExecuteNonQuery();
-            Console.WriteLine($"[Cleanup] Removed {deleted} stale products.");
-        }
+        Exec(conn, "TRUNCATE ProductSections, ProductIngredients, Products, Ingredients RESTART IDENTITY;");
+        Console.WriteLine("[Cleanup] All tables truncated.");
     }
 
     private static void Exec(NpgsqlConnection conn, string sql)
