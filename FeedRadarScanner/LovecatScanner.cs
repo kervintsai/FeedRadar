@@ -220,7 +220,7 @@ public class LovecatScanner
     }
 
     // Splits on 、/，/,/。/newlines but NOT on delimiters inside parentheses.
-    // e.g. "維生素預混劑（維生素A、維生素D3），雞肉" → ["維生素預混劑（維生素A、維生素D3）", "雞肉"]
+    // English comma between two digits (thousands separator like 30,770) is NOT split.
     private static IEnumerable<string> SmartSplit(string text)
     {
         int depth = 0, start = 0;
@@ -229,10 +229,20 @@ public class LovecatScanner
             char c = text[i];
             if (c is '(' or '（') depth++;
             else if (c is ')' or '）') { if (depth > 0) depth--; }
-            else if (depth == 0 && c is '、' or '，' or ',' or '。' or '\n' or '\r')
+            else if (depth == 0)
             {
-                if (i > start) yield return text[start..i];
-                start = i + 1;
+                bool split = c is '、' or '，' or '。' or '\n' or '\r';
+                if (!split && c == ',')
+                {
+                    bool prevDigit = i > 0 && char.IsDigit(text[i - 1]);
+                    bool nextDigit = i < text.Length - 1 && char.IsDigit(text[i + 1]);
+                    split = !(prevDigit && nextDigit);
+                }
+                if (split)
+                {
+                    if (i > start) yield return text[start..i];
+                    start = i + 1;
+                }
             }
         }
         if (start < text.Length) yield return text[start..];
@@ -283,6 +293,14 @@ public class LovecatScanner
             if (name.Contains('：') || name.Contains(':')) continue;
             if (name.Contains("大卡")) continue;
             if (name.StartsWith("以") || name.StartsWith("加入") || name.StartsWith("熱量")) continue;
+            if (name.StartsWith("*") || name.StartsWith("並") || name.StartsWith("不但")) continue;
+            // unclosed paren: description still attached (e.g. "CLA(共軛亞麻油酸")
+            if (name.Contains('(') || name.Contains('（'))
+            {
+                var openCount  = name.Count(ch => ch is '(' or '（');
+                var closeCount = name.Count(ch => ch is ')' or '）');
+                if (openCount > closeCount) continue;
+            }
             if (!seen.Add(name)) continue;
 
             result.Add(new Ingredient(name, pct, baseName, amountText));

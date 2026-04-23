@@ -119,8 +119,15 @@ public class ProductRepository
               AND BaseName NOT LIKE '%）'
               AND BaseName NOT LIKE '%]'
               AND BaseName NOT LIKE '%}'
+              -- 過濾未閉合的開括號（描述文字還黏在名稱後面）
+              AND BaseName NOT LIKE '%(%'
+              AND BaseName NOT LIKE '%（%'
               -- 過濾「字母+數字」片段（如 B1、D3、E137mg）
               AND BaseName !~ '^[A-Za-z][0-9]'
+              -- 過濾描述句和非原料文字
+              AND BaseName NOT LIKE '*%'
+              AND BaseName NOT LIKE '並%'
+              AND BaseName NOT LIKE '不但%'
             ORDER BY BaseName;
             """;
         using var reader = cmd.ExecuteReader();
