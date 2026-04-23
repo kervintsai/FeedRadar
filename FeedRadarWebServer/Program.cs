@@ -14,12 +14,11 @@ builder.Services.AddSingleton<ProductRepository>();
 
 var app = builder.Build();
 
+app.MapOpenApi();
+app.MapScalarApiReference();
+
 if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-    app.MapScalarApiReference();
     app.UseHttpsRedirection();
-}
 
 app.UseAuthorization();
 app.MapControllers();
