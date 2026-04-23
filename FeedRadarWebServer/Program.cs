@@ -1,6 +1,14 @@
+using Microsoft.AspNetCore.HttpOverrides;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 // 只在 Railway 容器內（有設定 PORT）才覆蓋監聽位置
 var railwayPort = Environment.GetEnvironmentVariable("PORT");
@@ -13,6 +21,8 @@ builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<ProductRepository>();
 
 var app = builder.Build();
+
+app.UseForwardedHeaders();
 
 app.MapOpenApi();
 app.MapScalarApiReference();
