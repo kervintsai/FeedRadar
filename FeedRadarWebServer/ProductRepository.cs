@@ -101,42 +101,9 @@ public class ProductRepository
         conn.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT DISTINCT BaseName FROM Ingredients
-            WHERE BaseName != ''
-              AND length(BaseName) >= 2
-              AND length(BaseName) <= 50
-              -- 過濾含數字單位的條目（mg/IU/毫克等）
-              AND BaseName !~* '\d+\s*(mg|mcg|μg|iu|%)'
-              AND BaseName NOT LIKE '%毫克%'
-              AND BaseName NOT LIKE '%微克%'
-              AND BaseName NOT LIKE '%國際單位%'
-              AND BaseName NOT LIKE '%大卡%'
-              AND BaseName NOT LIKE '%％%'
-              -- 過濾逗號串（多原料黏在一起的舊資料）
-              AND BaseName NOT LIKE '%，%'
-              AND BaseName NOT LIKE '%,%'
-              -- 過濾孤立括號殘留（舊資料切割錯誤）
-              AND BaseName NOT LIKE '%)'
-              AND BaseName NOT LIKE '%）'
-              AND BaseName NOT LIKE '%]'
-              AND BaseName NOT LIKE '%}'
-              -- 過濾未閉合的開括號（描述文字還黏在名稱後面）
-              AND BaseName NOT LIKE '%(%'
-              AND BaseName NOT LIKE '%（%'
-              -- 過濾「字母+數字」片段（如 B1、D3、E137mg）
-              AND BaseName !~ '^[A-Za-z][0-9]'
-              -- 過濾描述句和非原料文字
-              AND BaseName NOT LIKE '*%'
-              AND BaseName NOT LIKE '並%'
-              AND BaseName NOT LIKE '不但%'
-              AND BaseName NOT LIKE '主要%'
-              AND BaseName NOT IN ('感官', '營養', '毛髮柔亮')
-              -- 過濾含有列表分隔符的殘留串（多原料黏在一起）
-              AND BaseName NOT LIKE '%、%'
-              AND BaseName NOT LIKE '%[%'
-              AND BaseName NOT LIKE '%{%'
-              AND BaseName NOT LIKE '%•%'
-            ORDER BY BaseName;
+            SELECT IngredientsText FROM Products
+            WHERE IngredientsText != ''
+            ORDER BY Title;
             """;
         using var reader = cmd.ExecuteReader();
         var result = new List<string>();
