@@ -48,23 +48,43 @@ public class ProductRepository
             );
             """);
 
+        // Migration: drop old Ingredients/ProductIngredients and rebuild with Category column
+        Exec(conn, """
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'ingredients' AND column_name = 'basename'
+                ) THEN
+                    DROP TABLE IF EXISTS ProductIngredients;
+                    DROP TABLE IF EXISTS Ingredients;
+                END IF;
+            END $$;
+            """);
+
         Exec(conn, """
             CREATE TABLE IF NOT EXISTS Ingredients (
                 Id       SERIAL PRIMARY KEY,
                 Name     TEXT UNIQUE NOT NULL,
-                BaseName TEXT NOT NULL DEFAULT ''
+                Category TEXT NOT NULL DEFAULT ''
             );
             """);
 
+        // Seed meat categories (idempotent via ON CONFLICT DO NOTHING)
         Exec(conn, """
-            CREATE TABLE IF NOT EXISTS ProductIngredients (
-                ProductId    INTEGER NOT NULL,
-                IngredientId INTEGER NOT NULL,
-                SortOrder    INTEGER NOT NULL DEFAULT 0,
-                Percentage   DOUBLE PRECISION,
-                AmountText   TEXT,
-                PRIMARY KEY (ProductId, IngredientId)
-            );
+            INSERT INTO Ingredients (Name, Category) VALUES
+            ('雞','陸上動物'),('火雞','陸上動物'),('鴨','陸上動物'),
+            ('鵝','陸上動物'),('鵪鶉','陸上動物'),('豬','陸上動物'),
+            ('牛','陸上動物'),('羊','陸上動物'),('鹿','陸上動物'),
+            ('袋鼠','陸上動物'),('兔','陸上動物'),('鴯鶓','陸上動物'),
+            ('鮭魚','魚類'),('鱈魚','魚類'),('鯡魚','魚類'),
+            ('鯖魚','魚類'),('鮪魚','魚類'),('鰹魚','魚類'),
+            ('沙丁魚','魚類'),('鯷魚','魚類'),('鰈魚','魚類'),
+            ('比目魚','魚類'),('鱒魚','魚類'),('鱸魚','魚類'),
+            ('鰻魚','魚類'),('平鮋','魚類'),('虱目魚','魚類'),
+            ('磷蝦','海鮮'),('貽貝','海鮮'),('干貝','海鮮'),
+            ('龍蝦','海鮮'),('螃蟹','海鮮'),('鱉','海鮮')
+            ON CONFLICT (Name) DO NOTHING;
             """);
 
         Exec(conn, """
@@ -84,15 +104,11 @@ public class ProductRepository
             ("ProteinPct",    "DOUBLE PRECISION"),
             ("FatPct",        "DOUBLE PRECISION"),
             ("FiberPct",      "DOUBLE PRECISION"),
+            ("CaloriesText",  "TEXT"),
         })
         {
             Exec(conn, $"ALTER TABLE Products ADD COLUMN IF NOT EXISTS {col} {def};");
         }
-
-        Exec(conn, "ALTER TABLE ProductIngredients ADD COLUMN IF NOT EXISTS Percentage DOUBLE PRECISION;");
-        Exec(conn, "ALTER TABLE ProductIngredients ADD COLUMN IF NOT EXISTS AmountText TEXT;");
-        Exec(conn, "ALTER TABLE Ingredients ADD COLUMN IF NOT EXISTS BaseName TEXT NOT NULL DEFAULT ''");
-        Exec(conn, "ALTER TABLE Products ADD COLUMN IF NOT EXISTS CaloriesText TEXT;");
     }
 
     public List<string> GetIngredients() => new()
@@ -117,21 +133,13 @@ public class ProductRepository
 
         var conditions = new List<string>();
 
-        // Each selected ingredient becomes an AND subquery:
-        // product must contain an ingredient whose BaseName matches each keyword.
+        // Each selected meat keyword must appear in IngredientsText (AND logic)
         if (ingredients is { Count: > 0 })
         {
             for (int idx = 0; idx < ingredients.Count; idx++)
             {
                 var p = $"ing{idx}";
-                conditions.Add($"""
-                    p.Id IN (
-                        SELECT pi2.ProductId
-                        FROM ProductIngredients pi2
-                        JOIN Ingredients i2 ON i2.Id = pi2.IngredientId
-                        WHERE i2.BaseName ILIKE @{p}
-                    )
-                    """);
+                conditions.Add($"p.IngredientsText ILIKE @{p}");
                 cmd.Parameters.AddWithValue(p, $"%{ingredients[idx]}%");
             }
         }
