@@ -100,7 +100,29 @@ public class ProductRepository
         using var conn = new NpgsqlConnection(_connectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT DISTINCT BaseName FROM Ingredients WHERE BaseName != '' ORDER BY BaseName;";
+        cmd.CommandText = """
+            SELECT DISTINCT BaseName FROM Ingredients
+            WHERE BaseName != ''
+              AND length(BaseName) >= 2
+              -- 過濾含數字單位的條目（mg/IU/毫克等）
+              AND BaseName !~* '\d+\s*(mg|mcg|μg|iu|%)'
+              AND BaseName NOT LIKE '%毫克%'
+              AND BaseName NOT LIKE '%微克%'
+              AND BaseName NOT LIKE '%國際單位%'
+              AND BaseName NOT LIKE '%大卡%'
+              AND BaseName NOT LIKE '%％%'
+              -- 過濾逗號串（多原料黏在一起的舊資料）
+              AND BaseName NOT LIKE '%，%'
+              AND BaseName NOT LIKE '%,%'
+              -- 過濾孤立括號殘留（舊資料切割錯誤）
+              AND BaseName NOT LIKE '%)'
+              AND BaseName NOT LIKE '%）'
+              AND BaseName NOT LIKE '%]'
+              AND BaseName NOT LIKE '%}'
+              -- 過濾「字母+數字」片段（如 B1、D3、E137mg）
+              AND BaseName !~ '^[A-Za-z][0-9]'
+            ORDER BY BaseName;
+            """;
         using var reader = cmd.ExecuteReader();
         var result = new List<string>();
         while (reader.Read()) result.Add(reader.GetString(0));

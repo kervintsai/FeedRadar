@@ -31,9 +31,9 @@ public class LovecatScanner
 
     private static readonly string[] BlockEndMarkers = { "規格", "產地", "適用對象", "注意" };
 
-    // Matches weight-based concentrations: 1000mg/kg, 0.5g/kg, 50 IU/kg, etc.
+    // Matches weight-based concentrations: 1000mg/kg, 0.5g/kg, 150mg, 50 IU/kg, 5毫克, 1000國際單位, etc.
     private static readonly Regex AmountRegex = new(
-        @"\s*\d+(?:[.,]\d+)?\s*(?:mg|g|mcg|μg|IU|iu)\s*/\s*\w+",
+        @"\s*\d+(?:[.,]\d+)?\s*(?:mg|g|mcg|μg|IU|iu|毫克|微克|國際單位)\s*(?:/\s*\w+)?",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     // Converts HTML to text, preserving <p>/<br> boundaries as newlines so paragraph
@@ -219,6 +219,25 @@ public class LovecatScanner
         return new();
     }
 
+    // Splits on 、/，/,/。/newlines but NOT on delimiters inside parentheses.
+    // e.g. "維生素預混劑（維生素A、維生素D3），雞肉" → ["維生素預混劑（維生素A、維生素D3）", "雞肉"]
+    private static IEnumerable<string> SmartSplit(string text)
+    {
+        int depth = 0, start = 0;
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (c is '(' or '（') depth++;
+            else if (c is ')' or '）') { if (depth > 0) depth--; }
+            else if (depth == 0 && c is '、' or '，' or ',' or '。' or '\n' or '\r')
+            {
+                if (i > start) yield return text[start..i];
+                start = i + 1;
+            }
+        }
+        if (start < text.Length) yield return text[start..];
+    }
+
     // Splits ingredient text into individual items, extracting name, percentage, and amount
     private static List<Ingredient> ParseIngredients(string ingredientsText)
     {
@@ -231,7 +250,7 @@ public class LovecatScanner
         var seen   = new HashSet<string>();
         var result = new List<Ingredient>();
 
-        foreach (var raw in text.Split(new[] { '、', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries))
+        foreach (var raw in SmartSplit(text))
         {
             var s = raw.Trim().Trim('。', '　', ' ');
             if (string.IsNullOrWhiteSpace(s)) continue;
@@ -252,13 +271,18 @@ public class LovecatScanner
             // e.g. "甘露寡糖(萃取自酵母)" stays intact
             var name = AmountRegex.Replace(PctRegex.Replace(s, ""), "").Trim();
 
+            // Strip orphaned closing/opening brackets left over from mid-list splits
+            name = name.TrimEnd(')', '）', ']', '】').TrimStart('(', '（', '[', '【').Trim();
+
             // BaseName: strip ALL parens then apply prefix stripping
             // e.g. "甘露寡糖(萃取自酵母)" → "甘露寡糖"
             var baseName = ComputeBaseName(ParenRegex.Replace(name, "").Trim());
 
             if (name.Length < 2 || name.Length > 50) continue;
-            if (name.Contains('%') || name.Contains('：') || name.Contains(':')) continue;
-            if (name.StartsWith("以")) continue;
+            if (name.Contains('%') || name.Contains('％')) continue;
+            if (name.Contains('：') || name.Contains(':')) continue;
+            if (name.Contains("大卡")) continue;
+            if (name.StartsWith("以") || name.StartsWith("加入") || name.StartsWith("熱量")) continue;
             if (!seen.Add(name)) continue;
 
             result.Add(new Ingredient(name, pct, baseName, amountText));
