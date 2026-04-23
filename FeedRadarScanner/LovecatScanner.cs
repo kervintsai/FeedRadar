@@ -29,10 +29,15 @@ public class LovecatScanner
         ("保存方式", new Regex(@"保存方式",                      RegexOptions.Compiled)),
     };
 
-    // Markers that indicate the start of embedded nutrition data within the 內容 block
-    private static readonly string[] NutritionMarkers = { "蛋白質", "粗蛋白" };
-
     private static readonly string[] BlockEndMarkers = { "規格", "產地", "適用對象", "注意" };
+
+    // Converts HTML to text, preserving <p>/<br> boundaries as newlines so paragraph
+    // structure can be used to separate ingredient list from nutrition data.
+    private static string HtmlToText(string html)
+    {
+        var withBreaks = Regex.Replace(html, @"</?p[^>]*>|<br\s*/?>", "\n", RegexOptions.IgnoreCase);
+        return System.Net.WebUtility.HtmlDecode(Regex.Replace(withBreaks, @"<[^>]+>", " "));
+    }
     private static readonly Regex PctRegex   = new(@"[（(](\d+\.?\d*)%[）)]", RegexOptions.Compiled);
     private static readonly Regex ParenRegex = new(@"[\(（][^)）]*[\)）]",     RegexOptions.Compiled);
 
@@ -118,20 +123,23 @@ public class LovecatScanner
         var allSections = ExtractAllSections(root);
         var rawBlock    = allSections.GetValueOrDefault("內容", "");
 
-        // Split the 內容 block: ingredient list (before first nutrition keyword)
-        // and 成分 string (from that keyword onwards, if no separate 營養成分 section).
-        var splitIdx = NutritionMarkers
-            .Select(m => rawBlock.IndexOf(m, StringComparison.Ordinal))
-            .Where(i => i > 0)
-            .DefaultIfEmpty(-1)
-            .Min();
+        // The 內容 block may contain multiple <p> paragraphs:
+        //   first paragraph  = ingredient list (內容)
+        //   remaining paragraphs = nutritional data (成分)
+        var paragraphs = rawBlock
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => p.Trim())
+            .Where(p => p.Length > 2)
+            .ToList();
 
-        var ingredientsText = splitIdx > 0 ? rawBlock[..splitIdx].Trim() : rawBlock;
-        var embeddedNutrition = splitIdx > 0 ? rawBlock[splitIdx..].Trim() : "";
+        var ingredientsText   = paragraphs.FirstOrDefault() ?? "";
+        var embeddedNutrition = paragraphs.Count > 1
+            ? string.Join(" ", paragraphs.Skip(1)).Trim()
+            : "";
 
         var nutritionText = allSections.GetValueOrDefault("營養成分", embeddedNutrition);
 
-        // Build Sections: exclude 內容 (stored separately); add 成分 if embedded
+        // Build Sections: exclude 內容 (stored separately); add 成分 if it was embedded
         var sections = allSections
             .Where(kv => kv.Key != "內容")
             .ToDictionary(kv => kv.Key, kv => kv.Value);
@@ -163,9 +171,9 @@ public class LovecatScanner
         {
             if (!d.TryGetProperty("body_html", out var body)) continue;
             var html = body.GetString() ?? "";
-            if (!html.Contains("內容/成分")) continue;
+            if (!html.Contains("內容")) continue;
 
-            var text = System.Net.WebUtility.HtmlDecode(Regex.Replace(html, "<.*?>", " "));
+            var text = HtmlToText(html);
 
             // Find where the nutritional info block starts
             var startM = SectionDefs[0].Pattern.Match(text);
