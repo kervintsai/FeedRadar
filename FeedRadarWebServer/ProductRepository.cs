@@ -40,6 +40,7 @@ public class ProductRepository
                 Title           TEXT NOT NULL,
                 IngredientsText TEXT NOT NULL DEFAULT '',
                 NutritionText   TEXT NOT NULL DEFAULT '',
+                CaloriesText    TEXT,
                 ProteinPct      DOUBLE PRECISION,
                 FatPct          DOUBLE PRECISION,
                 FiberPct        DOUBLE PRECISION,
@@ -61,6 +62,7 @@ public class ProductRepository
                 IngredientId INTEGER NOT NULL,
                 SortOrder    INTEGER NOT NULL DEFAULT 0,
                 Percentage   DOUBLE PRECISION,
+                AmountText   TEXT,
                 PRIMARY KEY (ProductId, IngredientId)
             );
             """);
@@ -88,7 +90,9 @@ public class ProductRepository
         }
 
         Exec(conn, "ALTER TABLE ProductIngredients ADD COLUMN IF NOT EXISTS Percentage DOUBLE PRECISION;");
+        Exec(conn, "ALTER TABLE ProductIngredients ADD COLUMN IF NOT EXISTS AmountText TEXT;");
         Exec(conn, "ALTER TABLE Ingredients ADD COLUMN IF NOT EXISTS BaseName TEXT NOT NULL DEFAULT ''");
+        Exec(conn, "ALTER TABLE Products ADD COLUMN IF NOT EXISTS CaloriesText TEXT;");
     }
 
     public List<string> GetIngredients()
@@ -155,7 +159,7 @@ public class ProductRepository
         var where = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
         cmd.CommandText = $"""
             SELECT DISTINCT p.Id, p.Url, p.Title, p.IngredientsText, p.NutritionText,
-                   p.ProteinPct, p.FatPct, p.FiberPct, p.ScannedAt
+                   p.ProteinPct, p.FatPct, p.FiberPct, p.ScannedAt, p.CaloriesText
             FROM Products p
             {where}
             ORDER BY p.Title;
@@ -174,7 +178,8 @@ public class ProductRepository
                 reader.IsDBNull(5) ? null : reader.GetDouble(5),
                 reader.IsDBNull(6) ? null : reader.GetDouble(6),
                 reader.IsDBNull(7) ? null : reader.GetDouble(7),
-                reader.GetString(8)
+                reader.GetString(8),
+                CaloriesText: reader.IsDBNull(9) ? null : reader.GetString(9)
             ));
         }
         return results;
@@ -191,7 +196,7 @@ public class ProductRepository
         {
             cmd.CommandText = """
                 SELECT Id, Url, Title, IngredientsText, NutritionText,
-                       ProteinPct, FatPct, FiberPct, ScannedAt
+                       ProteinPct, FatPct, FiberPct, ScannedAt, CaloriesText
                 FROM Products WHERE Id = @id;
                 """;
             cmd.Parameters.AddWithValue("id", id);
@@ -203,7 +208,8 @@ public class ProductRepository
                 reader.IsDBNull(5) ? null : reader.GetDouble(5),
                 reader.IsDBNull(6) ? null : reader.GetDouble(6),
                 reader.IsDBNull(7) ? null : reader.GetDouble(7),
-                reader.GetString(8)
+                reader.GetString(8),
+                CaloriesText: reader.IsDBNull(9) ? null : reader.GetString(9)
             );
         }
 

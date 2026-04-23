@@ -31,6 +31,11 @@ public class LovecatScanner
 
     private static readonly string[] BlockEndMarkers = { "規格", "產地", "適用對象", "注意" };
 
+    // Matches weight-based concentrations: 1000mg/kg, 0.5g/kg, 50 IU/kg, etc.
+    private static readonly Regex AmountRegex = new(
+        @"\s*\d+(?:[.,]\d+)?\s*(?:mg|g|mcg|μg|IU|iu)\s*/\s*\w+",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     // Converts HTML to text, preserving <p>/<br> boundaries as newlines so paragraph
     // structure can be used to separate ingredient list from nutrition data.
     private static string HtmlToText(string html)
@@ -154,6 +159,7 @@ public class LovecatScanner
             NutritionText   = nutritionText,
             Ingredients     = ParseIngredients(ingredientsText),
             Sections        = sections,
+            CaloriesText    = ParseCaloriesText(sections),
             ProteinPct      = ParseNutrientPct(nutritionText, "蛋白質"),
             FatPct          = ParseNutrientPct(nutritionText, "脂肪"),
             FiberPct        = ParseNutrientPct(nutritionText, "粗纖維"),
@@ -213,7 +219,7 @@ public class LovecatScanner
         return new();
     }
 
-    // Splits ingredient text into individual items, extracting name and optional percentage
+    // Splits ingredient text into individual items, extracting name, percentage, and amount
     private static List<Ingredient> ParseIngredients(string ingredientsText)
     {
         if (string.IsNullOrWhiteSpace(ingredientsText)) return new();
@@ -237,18 +243,46 @@ public class LovecatScanner
                 double.TryParse(pctMatch.Groups[1].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out var p))
                 pct = p;
 
-            // Clean name: strip all parentheticals (including the % one)
-            var name = ParenRegex.Replace(s, "").Trim();
+            // Extract weight amount: "葡萄糖胺 1000mg/kg" → "1000mg/kg"
+            string? amountText = null;
+            var amtMatch = AmountRegex.Match(s);
+            if (amtMatch.Success) amountText = amtMatch.Value.Trim();
 
-            if (name.Length < 2 || name.Length > 30) continue;
+            // Name: remove only the percentage paren and amount; KEEP other parens
+            // e.g. "甘露寡糖(萃取自酵母)" stays intact
+            var name = AmountRegex.Replace(PctRegex.Replace(s, ""), "").Trim();
+
+            // BaseName: strip ALL parens then apply prefix stripping
+            // e.g. "甘露寡糖(萃取自酵母)" → "甘露寡糖"
+            var baseName = ComputeBaseName(ParenRegex.Replace(name, "").Trim());
+
+            if (name.Length < 2 || name.Length > 50) continue;
             if (name.Contains('%') || name.Contains('：') || name.Contains(':')) continue;
             if (name.StartsWith("以")) continue;
             if (!seen.Add(name)) continue;
 
-            result.Add(new Ingredient(name, pct, ComputeBaseName(name)));
+            result.Add(new Ingredient(name, pct, baseName, amountText));
         }
 
         return result;
+    }
+
+    // Searches all section text for a "熱量" entry and returns the value string (e.g. "4325大卡")
+    private static string? ParseCaloriesText(Dictionary<string, string> sections)
+    {
+        foreach (var text in sections.Values)
+        {
+            var idx = text.IndexOf("熱量", StringComparison.Ordinal);
+            if (idx < 0) continue;
+            var start = idx + 2;
+            while (start < text.Length && text[start] is '：' or ':' or ' ')
+                start++;
+            var end = text.IndexOfAny(new[] { '\n', '、', '\r', '；' }, start);
+            if (end < 0) end = Math.Min(start + 40, text.Length);
+            var cal = text[start..end].Trim();
+            if (cal.Length > 0) return cal;
+        }
+        return null;
     }
 
     private static double? ParseNutrientPct(string text, string nutrientName)
@@ -261,7 +295,7 @@ public class LovecatScanner
     }
 }
 
-public record Ingredient(string Name, double? Percentage, string BaseName);
+public record Ingredient(string Name, double? Percentage, string BaseName, string? AmountText);
 
 public class Product
 {
@@ -271,7 +305,8 @@ public class Product
     public string NutritionText   { get; set; } = "";
     public List<Ingredient>           Ingredients { get; set; } = new();
     public Dictionary<string, string> Sections    { get; set; } = new();
-    public double? ProteinPct { get; set; }
-    public double? FatPct     { get; set; }
-    public double? FiberPct   { get; set; }
+    public string? CaloriesText { get; set; }
+    public double? ProteinPct   { get; set; }
+    public double? FatPct       { get; set; }
+    public double? FiberPct     { get; set; }
 }
