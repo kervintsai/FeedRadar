@@ -145,7 +145,7 @@ public class ProductRepository
     {
         using var conn = new NpgsqlConnection(_connectionString);
         conn.Open();
-        Exec(conn, "TRUNCATE ProductSections, ProductIngredients, Products, Ingredients RESTART IDENTITY;");
+        Exec(conn, "TRUNCATE ProductSections, Products RESTART IDENTITY;");
         Console.WriteLine("[Cleanup] All tables truncated.");
     }
 
