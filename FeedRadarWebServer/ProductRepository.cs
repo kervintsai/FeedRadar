@@ -1,4 +1,4 @@
-using Microsoft.Data.Sqlite;
+using Npgsql;
 
 public class ProductRepository
 {
@@ -6,49 +6,37 @@ public class ProductRepository
 
     public ProductRepository(IConfiguration config)
     {
-        var configuredPath = config["Database:Path"];
-        var dbPath = string.IsNullOrEmpty(configuredPath)
-            ? ResolveDefaultDbPath()
-            : configuredPath;
-        _connectionString = $"Data Source={dbPath}";
+        // Railway 注入 DATABASE_URL；本地開發用 appsettings ConnectionStrings:Default
+        var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+        _connectionString = !string.IsNullOrEmpty(databaseUrl)
+            ? databaseUrl
+            : config.GetConnectionString("Default")
+              ?? throw new InvalidOperationException("No database connection string configured.");
         EnsureSchema();
-    }
-
-    private static string ResolveDefaultDbPath()
-    {
-        var dir = AppContext.BaseDirectory;
-        for (int i = 0; i < 5; i++)
-        {
-            if (Directory.GetFiles(dir, "*.slnx").Length > 0 ||
-                Directory.Exists(Path.Combine(dir, ".git")))
-                return Path.Combine(dir, "feeds.db");
-            dir = Path.GetFullPath(Path.Combine(dir, ".."));
-        }
-        return "feeds.db";
     }
 
     private void EnsureSchema()
     {
-        using var conn = new SqliteConnection(_connectionString);
+        using var conn = new NpgsqlConnection(_connectionString);
         conn.Open();
 
         Exec(conn, """
             CREATE TABLE IF NOT EXISTS Products (
-                Id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                Id              SERIAL PRIMARY KEY,
                 Url             TEXT UNIQUE NOT NULL,
                 Title           TEXT NOT NULL,
                 IngredientsText TEXT NOT NULL DEFAULT '',
                 NutritionText   TEXT NOT NULL DEFAULT '',
-                ProteinPct      REAL,
-                FatPct          REAL,
-                FiberPct        REAL,
+                ProteinPct      DOUBLE PRECISION,
+                FatPct          DOUBLE PRECISION,
+                FiberPct        DOUBLE PRECISION,
                 ScannedAt       TEXT NOT NULL
             );
             """);
 
         Exec(conn, """
             CREATE TABLE IF NOT EXISTS Ingredients (
-                Id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                Id   SERIAL PRIMARY KEY,
                 Name TEXT UNIQUE NOT NULL
             );
             """);
@@ -65,20 +53,18 @@ public class ProductRepository
         foreach (var (col, def) in new[]
         {
             ("NutritionText", "TEXT NOT NULL DEFAULT ''"),
-            ("ProteinPct",    "REAL"),
-            ("FatPct",        "REAL"),
-            ("FiberPct",      "REAL"),
+            ("ProteinPct",    "DOUBLE PRECISION"),
+            ("FatPct",        "DOUBLE PRECISION"),
+            ("FiberPct",      "DOUBLE PRECISION"),
         })
         {
-            try { Exec(conn, $"ALTER TABLE Products ADD COLUMN {col} {def};"); }
-            catch { /* 已存在，略過 */ }
+            Exec(conn, $"ALTER TABLE Products ADD COLUMN IF NOT EXISTS {col} {def};");
         }
     }
 
-    // 所有不重複的成分名稱，給前端做篩選下拉選單用
     public List<string> GetIngredients()
     {
-        using var conn = new SqliteConnection(_connectionString);
+        using var conn = new NpgsqlConnection(_connectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT Name FROM Ingredients ORDER BY Name;";
@@ -91,13 +77,12 @@ public class ProductRepository
     public List<ProductDto> GetAll(string? q = null, string? ingredient = null,
         double? minProtein = null, double? maxFat = null, double? maxFiber = null)
     {
-        using var conn = new SqliteConnection(_connectionString);
+        using var conn = new NpgsqlConnection(_connectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
 
         var conditions = new List<string>();
 
-        // 用 JOIN 做精確成分篩選
         var fromClause = "FROM Products p";
         if (!string.IsNullOrWhiteSpace(ingredient))
         {
@@ -106,29 +91,29 @@ public class ProductRepository
                 JOIN ProductIngredients pi ON pi.ProductId = p.Id
                 JOIN Ingredients i ON i.Id = pi.IngredientId
                 """;
-            conditions.Add("i.Name = $ingredient");
-            cmd.Parameters.AddWithValue("$ingredient", ingredient);
+            conditions.Add("i.Name = @ingredient");
+            cmd.Parameters.AddWithValue("ingredient", ingredient);
         }
 
         if (!string.IsNullOrWhiteSpace(q))
         {
-            conditions.Add("(p.Title LIKE $q OR p.IngredientsText LIKE $q)");
-            cmd.Parameters.AddWithValue("$q", $"%{q}%");
+            conditions.Add("(p.Title ILIKE @q OR p.IngredientsText ILIKE @q)");
+            cmd.Parameters.AddWithValue("q", $"%{q}%");
         }
         if (minProtein.HasValue)
         {
-            conditions.Add("p.ProteinPct >= $minProtein");
-            cmd.Parameters.AddWithValue("$minProtein", minProtein.Value);
+            conditions.Add("p.ProteinPct >= @minProtein");
+            cmd.Parameters.AddWithValue("minProtein", minProtein.Value);
         }
         if (maxFat.HasValue)
         {
-            conditions.Add("p.FatPct <= $maxFat");
-            cmd.Parameters.AddWithValue("$maxFat", maxFat.Value);
+            conditions.Add("p.FatPct <= @maxFat");
+            cmd.Parameters.AddWithValue("maxFat", maxFat.Value);
         }
         if (maxFiber.HasValue)
         {
-            conditions.Add("p.FiberPct <= $maxFiber");
-            cmd.Parameters.AddWithValue("$maxFiber", maxFiber.Value);
+            conditions.Add("p.FiberPct <= @maxFiber");
+            cmd.Parameters.AddWithValue("maxFiber", maxFiber.Value);
         }
 
         var where = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
@@ -161,15 +146,15 @@ public class ProductRepository
 
     public ProductDto? GetById(int id)
     {
-        using var conn = new SqliteConnection(_connectionString);
+        using var conn = new NpgsqlConnection(_connectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT Id, Url, Title, IngredientsText, NutritionText,
                    ProteinPct, FatPct, FiberPct, ScannedAt
-            FROM Products WHERE Id = $id;
+            FROM Products WHERE Id = @id;
             """;
-        cmd.Parameters.AddWithValue("$id", id);
+        cmd.Parameters.AddWithValue("id", id);
         using var reader = cmd.ExecuteReader();
         if (!reader.Read()) return null;
         return new ProductDto(
@@ -182,7 +167,7 @@ public class ProductRepository
         );
     }
 
-    private static void Exec(SqliteConnection conn, string sql)
+    private static void Exec(NpgsqlConnection conn, string sql)
     {
         using var cmd = conn.CreateCommand();
         cmd.CommandText = sql;

@@ -8,5 +8,4 @@ RUN dotnet publish "FeedRadarWebServer/FeedRadarWebServer.csproj" -c Release -o 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 COPY --from=build /app/publish .
-COPY feeds.db .
 ENTRYPOINT ["sh", "-c", "dotnet FeedRadarWebServer.dll --urls http://+:${PORT:-8080}"]

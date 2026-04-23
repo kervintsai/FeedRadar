@@ -1,0 +1,11 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+COPY ["FeedRadarScanner/FeedRadarScanner.csproj", "FeedRadarScanner/"]
+RUN dotnet restore "FeedRadarScanner/FeedRadarScanner.csproj"
+COPY FeedRadarScanner/ FeedRadarScanner/
+RUN dotnet publish "FeedRadarScanner/FeedRadarScanner.csproj" -c Release -o /app/publish
+
+FROM mcr.microsoft.com/dotnet/runtime:10.0 AS final
+WORKDIR /app
+COPY --from=build /app/publish .
+ENTRYPOINT ["dotnet", "FeedRadarScanner.dll"]
