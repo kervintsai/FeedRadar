@@ -10,12 +10,12 @@ public class ProductsController(ProductRepository repo, IMemoryCache cache) : Co
     [HttpGet]
     public IActionResult GetAll(
         [FromQuery] string? q,
-        [FromQuery] string? ingredient,
+        [FromQuery] List<string>? ingredient,
         [FromQuery] double? minProtein,
         [FromQuery] double? maxFat,
         [FromQuery] double? maxFiber)
     {
-        var cacheKey = $"products:{q}:{ingredient}:{minProtein}:{maxFat}:{maxFiber}";
+        var cacheKey = $"products:{q}:{string.Join(",", ingredient ?? [])}:{minProtein}:{maxFat}:{maxFiber}";
         if (!cache.TryGetValue(cacheKey, out List<ProductDto>? products))
         {
             products = repo.GetAll(q, ingredient, minProtein, maxFat, maxFiber);

@@ -43,8 +43,9 @@ public class ProductRepository
 
         Exec(conn, """
             CREATE TABLE IF NOT EXISTS Ingredients (
-                Id   SERIAL PRIMARY KEY,
-                Name TEXT UNIQUE NOT NULL
+                Id       SERIAL PRIMARY KEY,
+                Name     TEXT UNIQUE NOT NULL,
+                BaseName TEXT NOT NULL DEFAULT ''
             );
             """);
 
@@ -81,6 +82,7 @@ public class ProductRepository
         }
 
         Exec(conn, "ALTER TABLE ProductIngredients ADD COLUMN IF NOT EXISTS Percentage DOUBLE PRECISION;");
+        Exec(conn, "ALTER TABLE Ingredients ADD COLUMN IF NOT EXISTS BaseName TEXT NOT NULL DEFAULT ''");
     }
 
     public void Upsert(Product product)
@@ -125,11 +127,12 @@ public class ProductRepository
 
             var ingCmd = conn.CreateCommand();
             ingCmd.CommandText = """
-                INSERT INTO Ingredients (Name) VALUES (@name)
-                ON CONFLICT (Name) DO UPDATE SET Name = EXCLUDED.Name
+                INSERT INTO Ingredients (Name, BaseName) VALUES (@name, @baseName)
+                ON CONFLICT (Name) DO UPDATE SET BaseName = EXCLUDED.BaseName
                 RETURNING Id;
                 """;
-            ingCmd.Parameters.AddWithValue("name", ingredient.Name);
+            ingCmd.Parameters.AddWithValue("name",     ingredient.Name);
+            ingCmd.Parameters.AddWithValue("baseName", ingredient.BaseName);
             var ingredientId = (int)(ingCmd.ExecuteScalar() ?? 0);
 
             var piCmd = conn.CreateCommand();

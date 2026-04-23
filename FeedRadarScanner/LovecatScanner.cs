@@ -31,6 +31,18 @@ public class LovecatScanner
     private static readonly Regex PctRegex   = new(@"[（(](\d+\.?\d*)%[）)]", RegexOptions.Compiled);
     private static readonly Regex ParenRegex = new(@"[\(（][^)）]*[\)）]",     RegexOptions.Compiled);
 
+    // Longest prefixes first so "凍乾" isn't masked by a hypothetical single-char match
+    private static readonly string[] IngredientPrefixes =
+        { "冷凍乾燥", "凍乾", "去骨", "脫水", "乾燥", "烘乾", "新鮮", "冷凍", "有機" };
+
+    private static string ComputeBaseName(string name)
+    {
+        foreach (var prefix in IngredientPrefixes)
+            if (name.StartsWith(prefix) && name.Length - prefix.Length >= 2)
+                return name[prefix.Length..];
+        return name;
+    }
+
     public async Task<List<Product>> ScanAsync(string collectionUrl, CancellationToken ct = default)
     {
         var handles = await GetAllProductHandlesAsync(collectionUrl, ct);
@@ -201,7 +213,7 @@ public class LovecatScanner
             if (name.StartsWith("以")) continue;
             if (!seen.Add(name)) continue;
 
-            result.Add(new Ingredient(name, pct));
+            result.Add(new Ingredient(name, pct, ComputeBaseName(name)));
         }
 
         return result;
@@ -217,7 +229,7 @@ public class LovecatScanner
     }
 }
 
-public record Ingredient(string Name, double? Percentage);
+public record Ingredient(string Name, double? Percentage, string BaseName);
 
 public class Product
 {

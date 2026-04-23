@@ -49,8 +49,9 @@ public class ProductRepository
 
         Exec(conn, """
             CREATE TABLE IF NOT EXISTS Ingredients (
-                Id   SERIAL PRIMARY KEY,
-                Name TEXT UNIQUE NOT NULL
+                Id       SERIAL PRIMARY KEY,
+                Name     TEXT UNIQUE NOT NULL,
+                BaseName TEXT NOT NULL DEFAULT ''
             );
             """);
 
@@ -87,6 +88,7 @@ public class ProductRepository
         }
 
         Exec(conn, "ALTER TABLE ProductIngredients ADD COLUMN IF NOT EXISTS Percentage DOUBLE PRECISION;");
+        Exec(conn, "ALTER TABLE Ingredients ADD COLUMN IF NOT EXISTS BaseName TEXT NOT NULL DEFAULT ''");
     }
 
     public List<string> GetIngredients()
@@ -94,14 +96,14 @@ public class ProductRepository
         using var conn = new NpgsqlConnection(_connectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT Name FROM Ingredients ORDER BY Name;";
+        cmd.CommandText = "SELECT DISTINCT BaseName FROM Ingredients WHERE BaseName != '' ORDER BY BaseName;";
         using var reader = cmd.ExecuteReader();
         var result = new List<string>();
         while (reader.Read()) result.Add(reader.GetString(0));
         return result;
     }
 
-    public List<ProductDto> GetAll(string? q = null, string? ingredient = null,
+    public List<ProductDto> GetAll(string? q = null, List<string>? ingredients = null,
         double? minProtein = null, double? maxFat = null, double? maxFiber = null)
     {
         using var conn = new NpgsqlConnection(_connectionString);
@@ -109,18 +111,24 @@ public class ProductRepository
         using var cmd = conn.CreateCommand();
 
         var conditions = new List<string>();
-        var fromClause = "FROM Products p";
 
-        if (!string.IsNullOrWhiteSpace(ingredient))
+        // Each selected ingredient becomes an AND subquery:
+        // product must contain an ingredient whose BaseName matches each keyword.
+        if (ingredients is { Count: > 0 })
         {
-            fromClause = """
-                FROM Products p
-                JOIN ProductIngredients pi ON pi.ProductId = p.Id
-                JOIN Ingredients i ON i.Id = pi.IngredientId
-                """;
-            // Fuzzy match: "雞肉" matches "去骨雞肉", "脫水雞肉", etc.
-            conditions.Add("i.Name ILIKE @ingredient");
-            cmd.Parameters.AddWithValue("ingredient", $"%{ingredient}%");
+            for (int idx = 0; idx < ingredients.Count; idx++)
+            {
+                var p = $"ing{idx}";
+                conditions.Add($"""
+                    p.Id IN (
+                        SELECT pi2.ProductId
+                        FROM ProductIngredients pi2
+                        JOIN Ingredients i2 ON i2.Id = pi2.IngredientId
+                        WHERE i2.BaseName ILIKE @{p}
+                    )
+                    """);
+                cmd.Parameters.AddWithValue(p, $"%{ingredients[idx]}%");
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(q))
@@ -148,7 +156,7 @@ public class ProductRepository
         cmd.CommandText = $"""
             SELECT DISTINCT p.Id, p.Url, p.Title, p.IngredientsText, p.NutritionText,
                    p.ProteinPct, p.FatPct, p.FiberPct, p.ScannedAt
-            {fromClause}
+            FROM Products p
             {where}
             ORDER BY p.Title;
             """;
