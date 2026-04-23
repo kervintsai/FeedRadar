@@ -13,6 +13,6 @@ public class IngredientsController(ProductRepository repo, IMemoryCache cache) :
             ingredients = repo.GetIngredients();
             cache.Set("ingredients", ingredients, TimeSpan.FromMinutes(30));
         }
-        return Ok(ingredients);
+        return Ok(ApiResponse<List<IngredientDto>>.Ok(ingredients!));
     }
 }

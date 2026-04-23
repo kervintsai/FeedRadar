@@ -15,7 +15,8 @@ var railwayPort = Environment.GetEnvironmentVariable("PORT");
 if (railwayPort != null)
     builder.WebHost.UseUrls($"http://0.0.0.0:{railwayPort}");
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(o => o.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase);
 builder.Services.AddOpenApi();
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<ProductRepository>();

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Npgsql;
 
 public class ProductRepository
@@ -65,6 +66,11 @@ public class ProductRepository
             ("PetType",        "TEXT NOT NULL DEFAULT ''"),
             ("LifeStage",      "TEXT NOT NULL DEFAULT ''"),
             ("IsPrescription", "BOOLEAN NOT NULL DEFAULT FALSE"),
+            ("Functional",     "TEXT NOT NULL DEFAULT '[]'"),
+            ("Special",        "TEXT NOT NULL DEFAULT '[]'"),
+            ("ImageUrl",       "TEXT"),
+            ("Price",          "INTEGER"),
+            ("Volume",         "TEXT"),
         })
         {
             Exec(conn, $"ALTER TABLE Products ADD COLUMN IF NOT EXISTS {col} {def};");
@@ -80,19 +86,26 @@ public class ProductRepository
         var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT INTO Products (Url, Title, Brand, BrandEn, BrandZh, PetType, LifeStage, IsPrescription,
+                                  Functional, Special, ImageUrl, Price, Volume,
                                   IngredientsText, NutritionText, CaloriesText,
                                   ProteinPct, FatPct, FiberPct, ScannedAt)
             VALUES (@url, @title, @brand, @brandEn, @brandZh, @petType, @lifeStage, @isPrescription,
+                    @functional, @special, @imageUrl, @price, @volume,
                     @ingredients, @nutrition, @calories,
                     @protein, @fat, @fiber, @scannedAt)
             ON CONFLICT (Url) DO UPDATE SET
-                Title          = EXCLUDED.Title,
-                Brand          = EXCLUDED.Brand,
-                BrandEn        = EXCLUDED.BrandEn,
-                BrandZh        = EXCLUDED.BrandZh,
-                PetType        = EXCLUDED.PetType,
-                LifeStage      = EXCLUDED.LifeStage,
-                IsPrescription = EXCLUDED.IsPrescription,
+                Title           = EXCLUDED.Title,
+                Brand           = EXCLUDED.Brand,
+                BrandEn         = EXCLUDED.BrandEn,
+                BrandZh         = EXCLUDED.BrandZh,
+                PetType         = EXCLUDED.PetType,
+                LifeStage       = EXCLUDED.LifeStage,
+                IsPrescription  = EXCLUDED.IsPrescription,
+                Functional      = EXCLUDED.Functional,
+                Special         = EXCLUDED.Special,
+                ImageUrl        = EXCLUDED.ImageUrl,
+                Price           = EXCLUDED.Price,
+                Volume          = EXCLUDED.Volume,
                 IngredientsText = EXCLUDED.IngredientsText,
                 NutritionText   = EXCLUDED.NutritionText,
                 CaloriesText    = EXCLUDED.CaloriesText,
@@ -110,6 +123,11 @@ public class ProductRepository
         cmd.Parameters.AddWithValue("petType",        product.PetType);
         cmd.Parameters.AddWithValue("lifeStage",      product.LifeStage);
         cmd.Parameters.AddWithValue("isPrescription", product.IsPrescription);
+        cmd.Parameters.AddWithValue("functional",     JsonSerializer.Serialize(product.Functional));
+        cmd.Parameters.AddWithValue("special",        JsonSerializer.Serialize(product.Special));
+        cmd.Parameters.AddWithValue("imageUrl",       product.ImageUrl  as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("price",          product.Price     as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("volume",         product.Volume    as object ?? DBNull.Value);
         cmd.Parameters.AddWithValue("ingredients",    product.IngredientsText);
         cmd.Parameters.AddWithValue("nutrition",      product.NutritionText);
         cmd.Parameters.AddWithValue("calories",       product.CaloriesText as object ?? DBNull.Value);

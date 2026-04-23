@@ -13,6 +13,6 @@ public class BrandsController(ProductRepository repo, IMemoryCache cache) : Cont
             brands = repo.GetBrands();
             cache.Set("brands", brands, TimeSpan.FromMinutes(30));
         }
-        return Ok(brands);
+        return Ok(ApiResponse<List<BrandDto>>.Ok(brands!));
     }
 }

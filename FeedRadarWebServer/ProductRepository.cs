@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Npgsql;
 
 public class ProductRepository
@@ -111,6 +112,11 @@ public class ProductRepository
             ("PetType",        "TEXT NOT NULL DEFAULT ''"),
             ("LifeStage",      "TEXT NOT NULL DEFAULT ''"),
             ("IsPrescription", "BOOLEAN NOT NULL DEFAULT FALSE"),
+            ("Functional",     "TEXT NOT NULL DEFAULT '[]'"),
+            ("Special",        "TEXT NOT NULL DEFAULT '[]'"),
+            ("ImageUrl",       "TEXT"),
+            ("Price",          "INTEGER"),
+            ("Volume",         "TEXT"),
         })
         {
             Exec(conn, $"ALTER TABLE Products ADD COLUMN IF NOT EXISTS {col} {def};");
@@ -149,149 +155,233 @@ public class ProductRepository
         return result;
     }
 
-    public List<ProductDto> GetAll(string? q = null, List<string>? ingredients = null,
-        double? minProtein = null, double? maxFat = null, double? maxFiber = null,
-        string? brand = null, string? lifeStage = null, bool? isPrescription = null)
+    // ── Slug ↔ DB value mappings ────────────────────────────────────────────
+    private static string? SlugToPetType(string s) => s switch { "dog" => "狗", "cat" => "貓", _ => null };
+    private static string? SlugToLifeStage(string s) => s switch
     {
+        "kitten" => "幼犬", "adult" => "成犬", "senior" => "老犬", "all" => "全齡", _ => null
+    };
+    private static string PetTypeToSlug(string s) => s switch { "狗" => "dog", "貓" => "cat", _ => "other" };
+    private static string LifeStageToSlug(string s) => s switch
+    {
+        "幼犬" or "幼貓" => "kitten", "成犬" or "成貓" => "adult",
+        "老犬" or "老貓" => "senior", "全齡" => "all", _ => "other"
+    };
+    private static string? FormatPct(double? v)      => v.HasValue ? $"{v.Value:0.##}%" : null;
+    private static string? NormCalories(string? txt) => string.IsNullOrWhiteSpace(txt) ? null
+        : txt.Replace("大卡", " kcal").Replace("  ", " ").Trim();
+
+    private static string[] ParseJsonArr(string json)
+    {
+        try { return JsonSerializer.Deserialize<string[]>(json) ?? []; }
+        catch { return []; }
+    }
+
+    private static ProductResponseDto MapRow(NpgsqlDataReader r) => new(
+        Id:        r.GetInt32(0),
+        Name:      r.GetString(1),
+        Brand:     r.GetString(2),
+        Type:      PetTypeToSlug(r.GetString(3)),
+        TypeLabel: r.GetString(3),
+        Form:      "dry",
+        FormLabel: "乾糧",
+        Age:       LifeStageToSlug(r.GetString(4)),
+        AgeLabel:  r.GetString(4),
+        Flavor:    r.IsDBNull(5) ? null : r.GetString(5),
+        Functional: ParseJsonArr(r.GetString(6)),
+        Special:    ParseJsonArr(r.GetString(7)),
+        Volume:    r.IsDBNull(8)  ? null : r.GetString(8),
+        Price:     r.IsDBNull(9)  ? null : r.GetInt32(9),
+        Image:     r.IsDBNull(10) ? null : r.GetString(10),
+        Nutrition: new NutritionDto(
+            Protein:    FormatPct(r.IsDBNull(11) ? null : r.GetDouble(11)),
+            Fat:        FormatPct(r.IsDBNull(12) ? null : r.GetDouble(12)),
+            Carbs:      null,
+            Phosphorus: null,
+            Calories:   NormCalories(r.IsDBNull(13) ? null : r.GetString(13))
+        )
+    );
+
+    private const string ProductCols = """
+        p.Id, p.Title, p.Brand, p.PetType, p.LifeStage,
+        p.IngredientsText, p.Functional, p.Special,
+        p.Volume, p.Price, p.ImageUrl,
+        p.ProteinPct, p.FatPct, p.CaloriesText
+        """;
+
+    public (List<ProductResponseDto> Items, int Total) GetAll(
+        int page = 1, int limit = 24,
+        List<string>? type    = null,
+        string?       form    = null,
+        List<string>? age     = null,
+        List<string>? brand   = null,
+        List<string>? flavor  = null,
+        List<string>? func    = null,
+        List<string>? special = null)
+    {
+        limit = Math.Clamp(limit, 1, 100);
+        page  = Math.Max(1, page);
+
         using var conn = new NpgsqlConnection(_connectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
 
-        var conditions = new List<string>();
+        var cond = new List<string>();
 
-        // Each selected meat keyword must appear in IngredientsText (AND logic)
-        if (ingredients is { Count: > 0 })
+        if (type is { Count: > 0 })
         {
-            for (int idx = 0; idx < ingredients.Count; idx++)
+            var dbVals = type.Select(SlugToPetType).Where(v => v != null).Distinct().ToList();
+            if (dbVals.Count > 0)
             {
-                var p = $"ing{idx}";
-                conditions.Add($"p.IngredientsText ILIKE @{p}");
-                cmd.Parameters.AddWithValue(p, $"%{ingredients[idx]}%");
+                var phs = dbVals.Select((_, i) => $"@type{i}");
+                cond.Add($"p.PetType IN ({string.Join(",", phs)})");
+                for (int i = 0; i < dbVals.Count; i++) cmd.Parameters.AddWithValue($"type{i}", dbVals[i]!);
             }
         }
-
-        if (!string.IsNullOrWhiteSpace(q))
+        if (age is { Count: > 0 })
         {
-            conditions.Add("(p.Title ILIKE @q OR p.IngredientsText ILIKE @q)");
-            cmd.Parameters.AddWithValue("q", $"%{q}%");
+            var dbVals = age.Select(SlugToLifeStage).Where(v => v != null).Distinct().ToList();
+            if (dbVals.Count > 0)
+            {
+                var phs = dbVals.Select((_, i) => $"@age{i}");
+                cond.Add($"p.LifeStage IN ({string.Join(",", phs)})");
+                for (int i = 0; i < dbVals.Count; i++) cmd.Parameters.AddWithValue($"age{i}", dbVals[i]!);
+            }
         }
-        if (minProtein.HasValue)
+        if (brand is { Count: > 0 })
         {
-            conditions.Add("p.ProteinPct >= @minProtein");
-            cmd.Parameters.AddWithValue("minProtein", minProtein.Value);
+            var phs = brand.Select((_, i) => $"@brand{i}");
+            cond.Add($"p.Brand IN ({string.Join(",", phs)})");
+            for (int i = 0; i < brand.Count; i++) cmd.Parameters.AddWithValue($"brand{i}", brand[i]);
         }
-        if (maxFat.HasValue)
+        if (flavor is { Count: > 0 })
         {
-            conditions.Add("p.FatPct <= @maxFat");
-            cmd.Parameters.AddWithValue("maxFat", maxFat.Value);
+            var sub = flavor.Select((_, i) => $"p.IngredientsText ILIKE @flv{i}");
+            cond.Add($"({string.Join(" OR ", sub)})");
+            for (int i = 0; i < flavor.Count; i++) cmd.Parameters.AddWithValue($"flv{i}", $"%{flavor[i]}%");
         }
-        if (maxFiber.HasValue)
+        if (func is { Count: > 0 })
         {
-            conditions.Add("p.FiberPct <= @maxFiber");
-            cmd.Parameters.AddWithValue("maxFiber", maxFiber.Value);
+            var sub = func.Select((_, i) => $"p.Functional ~ @func{i}");
+            cond.Add($"({string.Join(" OR ", sub)})");
+            for (int i = 0; i < func.Count; i++) cmd.Parameters.AddWithValue($"func{i}", $"\"{func[i]}\"");
         }
-        if (!string.IsNullOrWhiteSpace(brand))
+        if (special is { Count: > 0 })
         {
-            conditions.Add("p.Brand ILIKE @brand");
-            cmd.Parameters.AddWithValue("brand", $"%{brand}%");
-        }
-        if (!string.IsNullOrWhiteSpace(lifeStage))
-        {
-            conditions.Add("p.LifeStage = @lifeStage");
-            cmd.Parameters.AddWithValue("lifeStage", lifeStage);
-        }
-        if (isPrescription.HasValue)
-        {
-            conditions.Add("p.IsPrescription = @isPrescription");
-            cmd.Parameters.AddWithValue("isPrescription", isPrescription.Value);
+            var sub = special.Select((_, i) => $"p.Special ~ @spc{i}");
+            cond.Add($"({string.Join(" OR ", sub)})");
+            for (int i = 0; i < special.Count; i++) cmd.Parameters.AddWithValue($"spc{i}", $"\"{special[i]}\"");
         }
 
-        var where = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
+        var where  = cond.Count > 0 ? "WHERE " + string.Join(" AND ", cond) : "";
+        var offset = (page - 1) * limit;
+
+        // Total count (reuse same params)
+        using var cntCmd = conn.CreateCommand();
+        cntCmd.CommandText = $"SELECT COUNT(*) FROM Products p {where}";
+        foreach (NpgsqlParameter p in cmd.Parameters)
+            cntCmd.Parameters.Add(new NpgsqlParameter(p.ParameterName, p.Value));
+        var total = Convert.ToInt32(cntCmd.ExecuteScalar() ?? 0);
+
         cmd.CommandText = $"""
-            SELECT DISTINCT p.Id, p.Url, p.Title, p.Brand, p.BrandEn, p.BrandZh, p.PetType,
-                   p.LifeStage, p.IsPrescription,
-                   p.IngredientsText, p.NutritionText,
-                   p.ProteinPct, p.FatPct, p.FiberPct, p.ScannedAt, p.CaloriesText
+            SELECT {ProductCols}
             FROM Products p
             {where}
-            ORDER BY p.Title;
+            ORDER BY p.Title
+            LIMIT @limit OFFSET @offset;
             """;
+        cmd.Parameters.AddWithValue("limit",  limit);
+        cmd.Parameters.AddWithValue("offset", offset);
 
-        var results = new List<ProductDto>();
+        var items = new List<ProductResponseDto>();
         using var reader = cmd.ExecuteReader();
-        while (reader.Read())
-        {
-            results.Add(new ProductDto(
-                reader.GetInt32(0),
-                reader.GetString(1),
-                reader.GetString(2),
-                reader.GetString(3),
-                reader.GetString(4),
-                reader.GetString(5),
-                reader.GetString(6),
-                reader.GetString(7),
-                reader.GetBoolean(8),
-                reader.GetString(9),
-                reader.GetString(10),
-                reader.IsDBNull(11) ? null : reader.GetDouble(11),
-                reader.IsDBNull(12) ? null : reader.GetDouble(12),
-                reader.IsDBNull(13) ? null : reader.GetDouble(13),
-                reader.GetString(14),
-                CaloriesText: reader.IsDBNull(15) ? null : reader.GetString(15)
-            ));
-        }
-        return results;
+        while (reader.Read()) items.Add(MapRow(reader));
+
+        return (items, total);
     }
 
-    public ProductDto? GetById(int id)
+    public ProductResponseDto? GetById(int id)
     {
         using var conn = new NpgsqlConnection(_connectionString);
         conn.Open();
 
-        // Fetch product row
-        ProductDto? dto;
+        ProductResponseDto? dto;
         using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = """
-                SELECT Id, Url, Title, Brand, BrandEn, BrandZh, PetType,
-                       LifeStage, IsPrescription,
-                       IngredientsText, NutritionText,
-                       ProteinPct, FatPct, FiberPct, ScannedAt, CaloriesText
-                FROM Products WHERE Id = @id;
-                """;
+            cmd.CommandText = $"SELECT {ProductCols} FROM Products p WHERE p.Id = @id;";
             cmd.Parameters.AddWithValue("id", id);
             using var reader = cmd.ExecuteReader();
             if (!reader.Read()) return null;
-            dto = new ProductDto(
-                reader.GetInt32(0), reader.GetString(1), reader.GetString(2),
-                reader.GetString(3), reader.GetString(4), reader.GetString(5), reader.GetString(6),
-                reader.GetString(7), reader.GetBoolean(8),
-                reader.GetString(9), reader.GetString(10),
-                reader.IsDBNull(11) ? null : reader.GetDouble(11),
-                reader.IsDBNull(12) ? null : reader.GetDouble(12),
-                reader.IsDBNull(13) ? null : reader.GetDouble(13),
-                reader.GetString(14),
-                CaloriesText: reader.IsDBNull(15) ? null : reader.GetString(15)
-            );
+            dto = MapRow(reader);
         }
+        return dto;
+    }
 
-        // Fetch all sections for this product
-        var sections = new Dictionary<string, string>();
-        using (var sectCmd = conn.CreateCommand())
-        {
-            sectCmd.CommandText = """
-                SELECT SectionName, SectionText
-                FROM ProductSections
-                WHERE ProductId = @id
-                ORDER BY Id;
-                """;
-            sectCmd.Parameters.AddWithValue("id", id);
-            using var sectReader = sectCmd.ExecuteReader();
-            while (sectReader.Read())
-                sections[sectReader.GetString(0)] = sectReader.GetString(1);
-        }
+    // ── /api/filters ───────────────────────────────────────────────────────
+    private static readonly (string Slug, string Label)[] FunctionalDefs =
+    {
+        ("kidney","腎臟保健"),("urinary","泌尿道保健"),("digest","腸胃保健"),
+        ("skin","皮膚毛髮"),("joint","關節保健"),("hairball","化毛配方"),("weight","體重管理"),
+    };
+    private static readonly (string Slug, string Label)[] SpecialDefs =
+    {
+        ("grain-free","無穀"),("hypoallergenic","低敏"),
+    };
 
-        return dto with { Sections = sections };
+    public FiltersDto GetFilters()
+    {
+        using var conn = new NpgsqlConnection(_connectionString);
+        conn.Open();
+
+        List<FilterOptionDto> CountBy(string col, string where = "") =>
+            ExecCount(conn, $"SELECT {col}, COUNT(*)::int FROM Products {(where == "" ? "" : "WHERE " + where)} GROUP BY {col} ORDER BY COUNT(*) DESC");
+
+        // types
+        var rawTypes = CountBy("PetType");
+        var types = rawTypes.Select(r => new FilterOptionDto(PetTypeToSlug(r.Value), r.Value, r.Count)).ToList();
+
+        // forms – static (all dry for now)
+        int total = ExecScalar(conn, "SELECT COUNT(*)::int FROM Products");
+        var forms = new List<FilterOptionDto> { new("dry", "乾糧", total) };
+
+        // ages
+        var rawAges = CountBy("LifeStage");
+        var ages = rawAges.Select(r => new FilterOptionDto(LifeStageToSlug(r.Value), r.Value, r.Count)).ToList();
+
+        // brands
+        var brands = ExecCount(conn, """
+            SELECT Brand, COUNT(*)::int FROM Products
+            WHERE Brand != '' GROUP BY Brand ORDER BY COUNT(*) DESC
+            """).Select(r => new FilterOptionDto(r.Value, r.Value, r.Count)).ToList();
+
+        // functional counts
+        var functional = FunctionalDefs.Select(d =>
+            new FilterOptionDto(d.Slug, d.Label, ExecScalar(conn, $"SELECT COUNT(*)::int FROM Products WHERE Functional ~ '\"{ d.Slug}\"'"))
+        ).Where(x => x.Count > 0).ToList();
+
+        // special counts
+        var special = SpecialDefs.Select(d =>
+            new FilterOptionDto(d.Slug, d.Label, ExecScalar(conn, $"SELECT COUNT(*)::int FROM Products WHERE Special ~ '\"{ d.Slug}\"'"))
+        ).Where(x => x.Count > 0).ToList();
+
+        return new FiltersDto(types, forms, ages, brands, functional, special);
+    }
+
+    private static List<FilterOptionDto> ExecCount(NpgsqlConnection conn, string sql)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = sql;
+        using var r = cmd.ExecuteReader();
+        var list = new List<FilterOptionDto>();
+        while (r.Read()) list.Add(new FilterOptionDto(r.GetString(0), r.GetString(0), r.GetInt32(1)));
+        return list;
+    }
+
+    private static int ExecScalar(NpgsqlConnection conn, string sql)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = sql;
+        return Convert.ToInt32(cmd.ExecuteScalar() ?? 0);
     }
 
     private static void Exec(NpgsqlConnection conn, string sql)

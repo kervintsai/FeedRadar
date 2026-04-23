@@ -69,6 +69,65 @@ public class LovecatScanner
     private static readonly Regex AdultRegex        = new(@"成犬|adult",                                  RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex PrescriptionRegex = new(@"處方|prescription|\bRx\b",                    RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    private static readonly (string Slug, Regex Pattern)[] FunctionalDefs =
+    {
+        ("kidney",   new Regex(@"腎臟|腎病|慢性腎",            RegexOptions.Compiled)),
+        ("urinary",  new Regex(@"泌尿|下泌尿道",               RegexOptions.Compiled)),
+        ("digest",   new Regex(@"腸胃|消化|腸道",              RegexOptions.Compiled)),
+        ("skin",     new Regex(@"皮膚|毛髮|毛色",              RegexOptions.Compiled)),
+        ("joint",    new Regex(@"關節|骨骼|軟骨",              RegexOptions.Compiled)),
+        ("hairball", new Regex(@"化毛|毛球",                   RegexOptions.Compiled)),
+        ("weight",   new Regex(@"體重管理|減重|低卡|肥胖",     RegexOptions.Compiled)),
+    };
+
+    private static readonly (string Slug, Regex Pattern)[] SpecialDefs =
+    {
+        ("grain-free",     new Regex(@"無穀|grain.free",          RegexOptions.Compiled | RegexOptions.IgnoreCase)),
+        ("hypoallergenic", new Regex(@"低敏|過敏|hypoallergenic", RegexOptions.Compiled | RegexOptions.IgnoreCase)),
+    };
+
+    private static string[] DetectFunctional(string title) =>
+        FunctionalDefs.Where(d => d.Pattern.IsMatch(title)).Select(d => d.Slug).ToArray();
+
+    private static string[] DetectSpecial(string title) =>
+        SpecialDefs.Where(d => d.Pattern.IsMatch(title)).Select(d => d.Slug).ToArray();
+
+    private static (string? ImageUrl, int? Price, string? Volume) ExtractVariantInfo(JsonElement root)
+    {
+        string? imageUrl = null;
+        if (root.TryGetProperty("images", out var imgs) && imgs.ValueKind == JsonValueKind.Array)
+        {
+            var first = imgs.EnumerateArray().FirstOrDefault();
+            if (first.ValueKind != JsonValueKind.Undefined && first.TryGetProperty("src", out var src))
+                imageUrl = src.GetString();
+        }
+
+        int? price = null;
+        string? volume = null;
+        if (root.TryGetProperty("variants", out var vars) && vars.ValueKind == JsonValueKind.Array)
+        {
+            var firstVar = vars.EnumerateArray().FirstOrDefault();
+            if (firstVar.ValueKind != JsonValueKind.Undefined)
+            {
+                if (firstVar.TryGetProperty("price", out var priceEl))
+                {
+                    var str = priceEl.ValueKind == JsonValueKind.String ? priceEl.GetString()
+                            : priceEl.ValueKind == JsonValueKind.Number ? priceEl.GetDecimal().ToString(CultureInfo.InvariantCulture)
+                            : null;
+                    if (decimal.TryParse(str, NumberStyles.Any, CultureInfo.InvariantCulture, out var val))
+                        price = (int)Math.Round(val);
+                }
+                if (firstVar.TryGetProperty("option1", out var opt) && opt.ValueKind == JsonValueKind.String)
+                {
+                    var v = opt.GetString()?.Trim();
+                    if (!string.IsNullOrWhiteSpace(v) && v is not "Title" and not "Default Title")
+                        volume = v;
+                }
+            }
+        }
+        return (imageUrl, price, volume);
+    }
+
     private static (string Brand, string BrandEn, string BrandZh) ExtractBrand(string title)
     {
         var m = BrandRegex.Match(title);
@@ -200,17 +259,23 @@ public class LovecatScanner
 
         var title = root.GetProperty("title").GetString() ?? "";
         var (brand, brandEn, brandZh) = ExtractBrand(title);
+        var (imageUrl, price, volume)  = ExtractVariantInfo(root);
 
         return new Product
         {
-            Url            = $"{Origin}/products/{encodedHandle}",
-            Title          = title,
-            Brand          = brand,
-            BrandEn        = brandEn,
-            BrandZh        = brandZh,
-            PetType        = DetectPetType(title, sections),
-            LifeStage      = DetectLifeStage(title),
-            IsPrescription = DetectPrescription(title, sections),
+            Url             = $"{Origin}/products/{encodedHandle}",
+            Title           = title,
+            Brand           = brand,
+            BrandEn         = brandEn,
+            BrandZh         = brandZh,
+            PetType         = DetectPetType(title, sections),
+            LifeStage       = DetectLifeStage(title),
+            IsPrescription  = DetectPrescription(title, sections),
+            Functional      = DetectFunctional(title),
+            Special         = DetectSpecial(title),
+            ImageUrl        = imageUrl,
+            Price           = price,
+            Volume          = volume,
             IngredientsText = ingredientsText,
             NutritionText   = compositionText,
             Ingredients     = ParseIngredients(ingredientsText),
@@ -409,6 +474,11 @@ public class Product
     public string PetType        { get; set; } = "";
     public string LifeStage      { get; set; } = "";
     public bool   IsPrescription { get; set; }
+    public string[] Functional   { get; set; } = [];
+    public string[] Special      { get; set; } = [];
+    public string? ImageUrl      { get; set; }
+    public int?    Price         { get; set; }
+    public string? Volume        { get; set; }
     public string IngredientsText { get; set; } = "";
     public string NutritionText   { get; set; } = "";
     public List<Ingredient>           Ingredients { get; set; } = new();
