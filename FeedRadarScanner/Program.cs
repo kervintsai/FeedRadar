@@ -16,4 +16,5 @@ Console.WriteLine($"Saving {products.Count} products...");
 foreach (var p in products)
     repo.Upsert(p);
 
+repo.DeleteStale(products.Select(p => p.Url));
 Console.WriteLine("Done.");

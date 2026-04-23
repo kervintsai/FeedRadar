@@ -19,12 +19,15 @@ public class LovecatScanner
     // Section header patterns in order of expected appearance
     private static readonly (string Key, Regex Pattern)[] SectionDefs =
     {
-        ("內容/成分", new Regex(@"內容/成分",                    RegexOptions.Compiled)),
-        ("添加物",    new Regex(@"添加物(?:[（(][^）)]*[）)])?", RegexOptions.Compiled)),
-        ("營養成分",  new Regex(@"營養(?:成分(?:及含量)?|分析)", RegexOptions.Compiled)),
-        ("代謝能",    new Regex(@"代謝能",                       RegexOptions.Compiled)),
-        ("適口性",    new Regex(@"適口性",                       RegexOptions.Compiled)),
-        ("保存方式",  new Regex(@"保存方式",                     RegexOptions.Compiled)),
+        // "內容" matches "內容" or "內容/成分" as the ingredient list header
+        ("內容",    new Regex(@"內容(?:/成分)?",                  RegexOptions.Compiled)),
+        // "成分" as a standalone section (not preceded by "/" or CJK char like "營養")
+        ("成分",    new Regex(@"(?<![/一-鿿])成分",       RegexOptions.Compiled)),
+        ("添加物",  new Regex(@"添加物(?:[（(][^）)]*[）)])?",    RegexOptions.Compiled)),
+        ("營養成分", new Regex(@"營養(?:成分(?:及含量)?|分析)",   RegexOptions.Compiled)),
+        ("代謝能",  new Regex(@"代謝能",                          RegexOptions.Compiled)),
+        ("適口性",  new Regex(@"適口性",                          RegexOptions.Compiled)),
+        ("保存方式", new Regex(@"保存方式",                       RegexOptions.Compiled)),
     };
 
     private static readonly string[] BlockEndMarkers = { "規格", "產地", "適用對象", "注意" };
@@ -110,9 +113,9 @@ public class LovecatScanner
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
 
-        var allSections   = ExtractAllSections(root);
-        var ingredientsText = allSections.GetValueOrDefault("內容/成分", "");
-        var nutritionText   = allSections.GetValueOrDefault("營養成分",  "");
+        var allSections     = ExtractAllSections(root);
+        var ingredientsText = allSections.GetValueOrDefault("內容",    "");
+        var nutritionText   = allSections.GetValueOrDefault("營養成分", "");
 
         return new Product
         {
