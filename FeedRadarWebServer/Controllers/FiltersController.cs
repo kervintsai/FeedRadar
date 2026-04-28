@@ -11,7 +11,11 @@ public class FiltersController(ProductRepository repo, IMemoryCache cache) : Con
         if (!cache.TryGetValue("filters", out FiltersDto? data))
         {
             data = repo.GetFilters();
-            cache.Set("filters", data, TimeSpan.FromHours(1));
+            var hasData = data != null &&
+                (data.Brands.Count > 0 || data.Ingredients.Count > 0 ||
+                 data.PetTypes.Count > 0 || data.Forms.Count > 0 || data.IsPrescription.Count > 0);
+            if (hasData)
+                cache.Set("filters", data, TimeSpan.FromHours(1));
         }
 
         Response.Headers.CacheControl = "public, max-age=3600";
