@@ -4,12 +4,6 @@ public class ProductRepository
 {
     private readonly string _connectionString;
 
-    private static readonly string[] CommonMeats =
-    {
-        "雞肉", "牛肉", "鮭魚", "鮪魚", "鴨肉",
-        "羊肉", "豬肉", "火雞", "鹿肉", "兔肉", "魚肉",
-    };
-
     public ProductRepository(IConfiguration config)
     {
         var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
@@ -70,6 +64,16 @@ public class ProductRepository
             ("FiberPct",       "DOUBLE PRECISION"),
         })
             Exec(conn, $"ALTER TABLE Products ADD COLUMN IF NOT EXISTS {col} {def};");
+
+        Exec(conn, """
+            CREATE TABLE IF NOT EXISTS FilterOptions (
+                Category TEXT NOT NULL,
+                Value    TEXT NOT NULL,
+                Label    TEXT NOT NULL,
+                Count    INT  NOT NULL,
+                PRIMARY KEY (Category, Value)
+            );
+            """);
     }
 
     // ── Filters ───────────────────────────────────────────────────────────────
@@ -79,39 +83,20 @@ public class ProductRepository
         using var conn = new NpgsqlConnection(_connectionString);
         conn.Open();
 
-        var brands = Query<FilterOption>(conn, """
-            SELECT Brand, Brand, COUNT(*)::int
-            FROM Products WHERE Brand != ''
-            GROUP BY Brand ORDER BY COUNT(*) DESC;
-            """, r => new FilterOption(r.GetString(0), r.GetString(1), r.GetInt32(2)));
+        var all = Query<(string Category, string Value, string Label, int Count)>(conn,
+            "SELECT Category, Value, Label, Count FROM FilterOptions ORDER BY Count DESC;",
+            r => (r.GetString(0), r.GetString(1), r.GetString(2), r.GetInt32(3)));
 
-        var ingredients = CommonMeats.Select(meat =>
-        {
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT COUNT(*)::int FROM Products WHERE IngredientsText ILIKE @kw;";
-            cmd.Parameters.AddWithValue("kw", $"%{meat}%");
-            var count = (int)(cmd.ExecuteScalar() ?? 0);
-            return new FilterOption(meat, meat, count);
-        }).Where(o => o.Count > 0).ToList();
+        FilterOption Map((string Category, string Value, string Label, int Count) row)
+            => new(row.Value, row.Label, row.Count);
 
-        var petTypes = new[]
-        {
-            new FilterOption("cat", "貓", Count(conn, "SELECT COUNT(*) FROM Products WHERE PetType='cat'")),
-            new FilterOption("dog", "狗", Count(conn, "SELECT COUNT(*) FROM Products WHERE PetType='dog'")),
-        }.Where(o => o.Count > 0).ToList();
-
-        var forms = new[]
-        {
-            new FilterOption("wet", "濕食", Count(conn, "SELECT COUNT(*) FROM Products WHERE Form='wet'")),
-            new FilterOption("dry", "乾糧", Count(conn, "SELECT COUNT(*) FROM Products WHERE Form='dry'")),
-        }.Where(o => o.Count > 0).ToList();
-
-        var prescriptionCount = Count(conn, "SELECT COUNT(*) FROM Products WHERE IsPrescription=TRUE");
-        var isPrescription = prescriptionCount > 0
-            ? new List<FilterOption> { new("true", "處方飼料", prescriptionCount) }
-            : new List<FilterOption>();
-
-        return new FiltersDto(brands, ingredients, petTypes, forms, isPrescription);
+        return new FiltersDto(
+            Brands:         all.Where(r => r.Category == "brand").Select(Map).ToList(),
+            Ingredients:    all.Where(r => r.Category == "ingredient").Select(Map).ToList(),
+            PetTypes:       all.Where(r => r.Category == "petType").Select(Map).ToList(),
+            Forms:          all.Where(r => r.Category == "form").Select(Map).ToList(),
+            IsPrescription: all.Where(r => r.Category == "isPrescription").Select(Map).ToList()
+        );
     }
 
     // ── Products ──────────────────────────────────────────────────────────────

@@ -46,6 +46,16 @@ public class ProductRepository
             );
             """);
 
+        Exec(conn, """
+            CREATE TABLE IF NOT EXISTS FilterOptions (
+                Category TEXT NOT NULL,
+                Value    TEXT NOT NULL,
+                Label    TEXT NOT NULL,
+                Count    INT  NOT NULL,
+                PRIMARY KEY (Category, Value)
+            );
+            """);
+
         foreach (var (col, def) in new[]
         {
             ("Brand",          "TEXT NOT NULL DEFAULT ''"),
@@ -113,7 +123,79 @@ public class ProductRepository
         using var conn = new NpgsqlConnection(_connectionString);
         conn.Open();
         Exec(conn, "TRUNCATE Products RESTART IDENTITY;");
-        Console.WriteLine("[Cleanup] Products truncated.");
+        Exec(conn, "TRUNCATE FilterOptions;");
+        Console.WriteLine("[Cleanup] Products and FilterOptions truncated.");
+    }
+
+    private static readonly string[] CommonMeats =
+        ["雞肉", "牛肉", "鮭魚", "鮪魚", "鴨肉", "羊肉", "豬肉", "火雞", "鹿肉", "兔肉", "魚肉"];
+
+    public void RebuildFilters()
+    {
+        using var conn = new NpgsqlConnection(_connectionString);
+        conn.Open();
+
+        var rows = new List<(string Category, string Value, string Label, int Count)>();
+
+        // Brands
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "SELECT Brand, COUNT(*)::int FROM Products WHERE Brand != '' GROUP BY Brand ORDER BY COUNT(*) DESC;";
+            using var r = cmd.ExecuteReader();
+            while (r.Read()) rows.Add(("brand", r.GetString(0), r.GetString(0), r.GetInt32(1)));
+        }
+
+        // Ingredients (common meats)
+        foreach (var meat in CommonMeats)
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*)::int FROM Products WHERE IngredientsText ILIKE @kw;";
+            cmd.Parameters.AddWithValue("kw", $"%{meat}%");
+            var count = (int)(cmd.ExecuteScalar() ?? 0);
+            if (count > 0) rows.Add(("ingredient", meat, meat, count));
+        }
+
+        // PetTypes
+        foreach (var (value, label) in new[] { ("cat", "貓"), ("dog", "狗") })
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*)::int FROM Products WHERE PetType = @v;";
+            cmd.Parameters.AddWithValue("v", value);
+            var count = (int)(cmd.ExecuteScalar() ?? 0);
+            if (count > 0) rows.Add(("petType", value, label, count));
+        }
+
+        // Forms
+        foreach (var (value, label) in new[] { ("wet", "濕食"), ("dry", "乾糧") })
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*)::int FROM Products WHERE Form = @v;";
+            cmd.Parameters.AddWithValue("v", value);
+            var count = (int)(cmd.ExecuteScalar() ?? 0);
+            if (count > 0) rows.Add(("form", value, label, count));
+        }
+
+        // IsPrescription
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*)::int FROM Products WHERE IsPrescription = TRUE;";
+            var count = (int)(cmd.ExecuteScalar() ?? 0);
+            if (count > 0) rows.Add(("isPrescription", "true", "處方飼料", count));
+        }
+
+        Exec(conn, "TRUNCATE FilterOptions;");
+        foreach (var (category, value, label, count) in rows)
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "INSERT INTO FilterOptions (Category, Value, Label, Count) VALUES (@cat, @val, @lbl, @cnt);";
+            cmd.Parameters.AddWithValue("cat", category);
+            cmd.Parameters.AddWithValue("val", value);
+            cmd.Parameters.AddWithValue("lbl", label);
+            cmd.Parameters.AddWithValue("cnt", count);
+            cmd.ExecuteNonQuery();
+        }
+
+        Console.WriteLine($"[Filters] Rebuilt {rows.Count} filter options.");
     }
 
     private static void Exec(NpgsqlConnection conn, string sql)

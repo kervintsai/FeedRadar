@@ -33,3 +33,5 @@ foreach (var url in collections)
 }
 
 Console.WriteLine($"\nDone. Total saved: {total}");
+
+repo.RebuildFilters();
