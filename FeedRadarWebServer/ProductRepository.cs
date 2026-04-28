@@ -93,6 +93,9 @@ public class ProductRepository
             "SELECT Category, Value, Label, Count FROM FilterOptions ORDER BY Count DESC;",
             r => (r.GetString(0), r.GetString(1), r.GetString(2), r.GetInt32(3)));
 
+        if (all.Count == 0)
+            all = BuildFiltersFromProducts(conn);
+
         FilterOption Map((string Category, string Value, string Label, int Count) row)
             => new(row.Value, row.Label, row.Count);
 
@@ -103,6 +106,55 @@ public class ProductRepository
             Forms:          all.Where(r => r.Category == "form").Select(Map).ToList(),
             IsPrescription: all.Where(r => r.Category == "isPrescription").Select(Map).ToList()
         );
+    }
+
+    private List<(string Category, string Value, string Label, int Count)> BuildFiltersFromProducts(NpgsqlConnection conn)
+    {
+        var rows = new List<(string, string, string, int)>();
+
+        var brands = Query<(string, string, string, int)>(conn,
+            "SELECT Brand, Brand, COUNT(*)::int FROM Products WHERE Brand != '' GROUP BY Brand ORDER BY COUNT(*) DESC;",
+            r => ("brand", r.GetString(0), r.GetString(1), r.GetInt32(2)));
+        rows.AddRange(brands);
+
+        foreach (var meat in CommonMeats)
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*)::int FROM Products WHERE IngredientsText ILIKE @kw;";
+            cmd.Parameters.AddWithValue("kw", $"%{meat}%");
+            var count = (int)(cmd.ExecuteScalar() ?? 0);
+            if (count > 0) rows.Add(("ingredient", meat, meat, count));
+        }
+
+        foreach (var (value, label) in new[] { ("cat", "貓"), ("dog", "狗") })
+        {
+            var c = Count(conn, $"SELECT COUNT(*) FROM Products WHERE PetType='{value}'");
+            if (c > 0) rows.Add(("petType", value, label, c));
+        }
+
+        foreach (var (value, label) in new[] { ("wet", "濕食"), ("dry", "乾糧") })
+        {
+            var c = Count(conn, $"SELECT COUNT(*) FROM Products WHERE Form='{value}'");
+            if (c > 0) rows.Add(("form", value, label, c));
+        }
+
+        var presCount = Count(conn, "SELECT COUNT(*) FROM Products WHERE IsPrescription=TRUE");
+        if (presCount > 0) rows.Add(("isPrescription", "true", "處方飼料", presCount));
+
+        // Persist so next call is fast
+        Exec(conn, "TRUNCATE FilterOptions;");
+        foreach (var (cat, val, lbl, cnt) in rows)
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "INSERT INTO FilterOptions (Category, Value, Label, Count) VALUES (@c, @v, @l, @n);";
+            cmd.Parameters.AddWithValue("c", cat);
+            cmd.Parameters.AddWithValue("v", val);
+            cmd.Parameters.AddWithValue("l", lbl);
+            cmd.Parameters.AddWithValue("n", cnt);
+            cmd.ExecuteNonQuery();
+        }
+
+        return rows;
     }
 
     // ── Products ──────────────────────────────────────────────────────────────
