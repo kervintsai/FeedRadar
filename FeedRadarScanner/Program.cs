@@ -19,17 +19,25 @@ string[] collections =
     "https://www.lovecat.com.tw/collections/貓-罐頭-餐包_全部商品",
     "https://www.lovecat.com.tw/collections/貓零食點心_全部商品",
     "https://www.lovecat.com.tw/collections/處方乾糧罐頭_全部商品",
+    "https://www.lovecat.com.tw/collections/冷凍生鮮食專區_全部商品",
 ];
 
 int total = 0;
 foreach (var url in collections)
 {
     Console.WriteLine($"\n[Collection] {url}");
-    var products = await scanner.ScanAsync(url);
-    Console.WriteLine($"Saving {products.Count} products...");
-    foreach (var p in products)
-        repo.Upsert(p);
-    total += products.Count;
+    try
+    {
+        var products = await scanner.ScanAsync(url);
+        Console.WriteLine($"Saving {products.Count} products...");
+        foreach (var p in products)
+            repo.Upsert(p);
+        total += products.Count;
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[ERR] Collection failed: {ex.Message}");
+    }
 }
 
 Console.WriteLine($"\nDone. Total saved: {total}");

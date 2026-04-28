@@ -122,30 +122,49 @@ public class LovecatScanner
 
     private async Task<List<string>> GetAllProductHandlesAsync(string collectionUrl, CancellationToken ct)
     {
-        var url = BuildSearchProductsUrl(collectionUrl, page: 1, per: 1000);
-        Console.WriteLine("[Debug] Fetch " + url);
-        var json = await _http.GetStringAsync(url, ct);
-
-        using var doc = JsonDocument.Parse(json);
         var handles = new List<string>();
-        foreach (var p in doc.RootElement.GetProperty("products").EnumerateArray())
+        int page = 1;
+
+        while (true)
         {
-            if (p.TryGetProperty("handle", out var h) && h.ValueKind == JsonValueKind.String)
+            var url = BuildSearchProductsUrl(collectionUrl, page, per: 250);
+            Console.WriteLine($"[Debug] Fetch page {page}: {url}");
+            var json = await _http.GetStringAsync(url, ct);
+
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            foreach (var p in root.GetProperty("products").EnumerateArray())
             {
-                var handle = h.GetString();
-                if (!string.IsNullOrWhiteSpace(handle))
-                    handles.Add(handle.Trim());
+                if (p.TryGetProperty("handle", out var h) && h.ValueKind == JsonValueKind.String)
+                {
+                    var handle = h.GetString();
+                    if (!string.IsNullOrWhiteSpace(handle))
+                        handles.Add(handle.Trim());
+                }
             }
+
+            if (!root.TryGetProperty("total_pages", out var totalPagesEl) ||
+                page >= totalPagesEl.GetInt32())
+                break;
+
+            page++;
         }
+
         return handles;
     }
 
     private static string BuildSearchProductsUrl(string collectionUrl, int page, int per)
     {
-        var baseUrl = collectionUrl.TrimEnd('/');
-        if (!baseUrl.EndsWith("/search_products.json", StringComparison.OrdinalIgnoreCase))
-            baseUrl += "/search_products.json";
-        return $"{baseUrl}?page={page}&per={per}&sort_by=&product_filters=%5B%5D&tags=";
+        var uri = new Uri(collectionUrl.TrimEnd('/'));
+        var path = uri.AbsolutePath;
+        if (!path.EndsWith("/search_products.json", StringComparison.OrdinalIgnoreCase))
+            path += "/search_products.json";
+        // Encode each segment individually to handle Chinese characters safely
+        var encodedPath = string.Join("/",
+            path.Split('/').Select(s => Uri.EscapeDataString(Uri.UnescapeDataString(s))));
+        var port = uri.IsDefaultPort ? "" : $":{uri.Port}";
+        return $"{uri.Scheme}://{uri.Host}{port}{encodedPath}?page={page}&per={per}&sort_by=&product_filters=%5B%5D&tags=";
     }
 
     private async Task<Product?> FetchProductAsync(string handle, CancellationToken ct)

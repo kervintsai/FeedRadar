@@ -128,7 +128,7 @@ public class ProductRepository
     }
 
     private static readonly string[] CommonMeats =
-        ["雞肉", "牛肉", "鮭魚", "鮪魚", "鴨肉", "羊肉", "豬肉", "火雞", "鹿肉", "兔肉", "魚肉"];
+        ["雞肉", "牛肉", "鮭魚", "鮪魚", "鴨肉", "羊肉", "豬肉", "火雞", "鹿肉", "兔肉", "鯖魚", "鱈魚", "鯛魚"];
 
     public void RebuildFilters()
     {
