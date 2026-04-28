@@ -46,181 +46,37 @@ public class LovecatScanner
     private static readonly Regex PctRegex   = new(@"[（(](\d+\.?\d*)%[）)]", RegexOptions.Compiled);
     private static readonly Regex ParenRegex = new(@"[\(（][^)）]*[\)）]",     RegexOptions.Compiled);
 
-    // ── Slug mapping dictionaries ─────────────────────────────────────────────
+    // ── Metadata extraction ───────────────────────────────────────────────────
 
-    private static readonly Dictionary<string, string> BrandSlugMap = new(StringComparer.OrdinalIgnoreCase)
+    private static string ExtractBrand(string title)
     {
-        ["汪喵星球"] = "wangmiao",  ["巷弄貓"] = "alleycat",
-        ["紐崔斯"]   = "nutrience", ["巔峰"]   = "ziwi",
-        ["Ziwi"]     = "ziwipeak",  ["ZIWI"]   = "ziwipeak",
-        ["Schesir"]  = "schesir",   ["SCHESIR"] = "schesir",
-        ["Almo Nature"] = "almo",   ["Applaws"] = "applaws",
-        ["Weruva"]   = "weruva",    ["Tiki Cat"] = "tikicat",
-        ["西莎"]     = "cesar",     ["Hill's"]  = "hills",
-        ["Hills"]    = "hills",
-    };
-
-    private static readonly Dictionary<string, string> FlavorSlugMap = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["雞肉"] = "chicken", ["雞"] = "chicken",
-        ["牛肉"] = "beef",    ["牛"] = "beef",
-        ["魚肉"] = "fish",    ["魚"] = "fish",
-        ["鮪魚"] = "tuna",    ["鮪"] = "tuna",
-        ["火雞"] = "turkey",
-        ["羊肉"] = "lamb",    ["羊"] = "lamb",
-        ["鴨肉"] = "duck",    ["鴨"] = "duck",
-        ["鮭魚"] = "salmon",  ["鮭"] = "salmon",
-        ["鹿肉"] = "venison", ["鹿"] = "venison",
-        ["兔肉"] = "rabbit",  ["兔"] = "rabbit",
-        ["鵪鶉"] = "quail",
-        ["綜合"] = "mixed",   ["多種口味"] = "mixed",
-    };
-
-    // keyword in title/tags → functional slug
-    private static readonly (string Keyword, string Slug)[] FunctionalKeywords =
-    {
-        ("腎臟",   "kidney"),  ("泌尿",  "urinary"),
-        ("腸胃",   "digest"),  ("消化",  "digest"),
-        ("皮膚",   "skin"),    ("毛髮",  "skin"),    ("護毛", "skin"),
-        ("關節",   "joint"),
-        ("化毛",   "hairball"),
-        ("體重",   "weight"),  ("減重",  "weight"),  ("輕盈", "weight"),
-    };
-
-    private static readonly (string Keyword, string Slug)[] SpecialKeywords =
-    {
-        ("無穀",   "grain-free"), ("不含穀", "grain-free"),
-        ("低敏",   "hypoallergenic"), ("水解",  "hypoallergenic"),
-    };
-
-    // ── Slug extraction helpers ───────────────────────────────────────────────
-
-    private static string? ResolveBrandSlug(string? vendor)
-    {
-        if (string.IsNullOrWhiteSpace(vendor)) return null;
-        var v = vendor.Trim();
-        if (BrandSlugMap.TryGetValue(v, out var slug)) return slug;
-        // partial match
-        foreach (var (k, s) in BrandSlugMap)
-            if (v.Contains(k, StringComparison.OrdinalIgnoreCase)) return s;
-        return null;
+        var m = Regex.Match(title, @"【([^】]+)】");
+        return m.Success ? m.Groups[1].Value.Trim() : "";
     }
 
-    private static string? ResolveTypeSlug(string? productType, IEnumerable<string> tags, string title)
+    private static string DetectPetType(string title, string productType, IEnumerable<string> tags)
     {
-        var sources = new[] { productType ?? "" }.Concat(tags).Append(title);
+        var sources = new[] { title, productType }.Concat(tags);
         foreach (var s in sources)
         {
             if (s.Contains("犬") || s.Contains("狗")) return "dog";
-            if (s.Contains("貓") || s.Contains("cat", StringComparison.OrdinalIgnoreCase)) return "cat";
+            if (s.Contains("貓"))                     return "cat";
         }
-        return null;
+        return "";
     }
 
-    private static string? ResolveFormSlug(string? productType, IEnumerable<string> tags, string title)
+    private static bool DetectIsPrescription(string title, IEnumerable<string> tags)
+        => new[] { title }.Concat(tags).Any(s => s.Contains("處方"));
+
+    private static string DetectForm(string title, string productType, IEnumerable<string> tags)
     {
-        var sources = new[] { productType ?? "" }.Concat(tags).Append(title);
+        var sources = new[] { title, productType }.Concat(tags);
         foreach (var s in sources)
         {
-            if (s.Contains("乾糧") || s.Contains("乾食") || s.Contains("kibble", StringComparison.OrdinalIgnoreCase) ||
-                s.Contains("dry",   StringComparison.OrdinalIgnoreCase)) return "dry";
-            if (s.Contains("濕食") || s.Contains("主食罐") || s.Contains("罐頭") || s.Contains("餐包") ||
-                s.Contains("wet",   StringComparison.OrdinalIgnoreCase)) return "wet";
+            if (s.Contains("乾糧") || s.Contains("乾食")) return "dry";
+            if (s.Contains("濕食") || s.Contains("主食罐") || s.Contains("罐頭") || s.Contains("餐包")) return "wet";
         }
-        return null;
-    }
-
-    private static string? ResolveAgeSlug(IEnumerable<string> tags, string title)
-    {
-        var sources = tags.Append(title);
-        foreach (var s in sources)
-        {
-            if (s.Contains("全齡") || s.Contains("all age", StringComparison.OrdinalIgnoreCase)) return "all";
-            if (s.Contains("幼") || s.Contains("kitten", StringComparison.OrdinalIgnoreCase) ||
-                s.Contains("puppy",  StringComparison.OrdinalIgnoreCase)) return "kitten";
-            if (s.Contains("老") || s.Contains("senior", StringComparison.OrdinalIgnoreCase)) return "senior";
-            if (s.Contains("成") || s.Contains("adult",  StringComparison.OrdinalIgnoreCase)) return "adult";
-        }
-        return null;
-    }
-
-    private static List<string> ResolveFlavorSlugs(IEnumerable<string> tags, string title)
-    {
-        var result = new HashSet<string>();
-        var sources = tags.Append(title);
-        foreach (var s in sources)
-            foreach (var (kw, slug) in FlavorSlugMap)
-                if (s.Contains(kw)) result.Add(slug);
-        return result.ToList();
-    }
-
-    private static List<string> ResolveFunctionalSlugs(IEnumerable<string> tags, string title)
-    {
-        var result = new HashSet<string>();
-        var sources = tags.Append(title);
-        foreach (var s in sources)
-            foreach (var (kw, slug) in FunctionalKeywords)
-                if (s.Contains(kw)) result.Add(slug);
-        return result.ToList();
-    }
-
-    private static List<string> ResolveSpecialSlugs(IEnumerable<string> tags, string title)
-    {
-        var result = new HashSet<string>();
-        var sources = tags.Append(title);
-        foreach (var s in sources)
-            foreach (var (kw, slug) in SpecialKeywords)
-                if (s.Contains(kw)) result.Add(slug);
-        return result.ToList();
-    }
-
-    private static string? ResolveVolume(JsonElement root)
-    {
-        if (!root.TryGetProperty("variants", out var variants) ||
-            variants.ValueKind != JsonValueKind.Array) return null;
-        foreach (var v in variants.EnumerateArray())
-        {
-            if (v.TryGetProperty("title", out var t) && t.ValueKind == JsonValueKind.String)
-            {
-                var title = t.GetString()?.Trim() ?? "";
-                if (Regex.IsMatch(title, @"\d+\s*(?:g|kg|ml|L)", RegexOptions.IgnoreCase) &&
-                    title != "Default Title")
-                    return title.ToLower().Replace(" ", "");
-            }
-        }
-        return null;
-    }
-
-    private static int? ResolvePrice(JsonElement root)
-    {
-        if (!root.TryGetProperty("variants", out var variants) ||
-            variants.ValueKind != JsonValueKind.Array) return null;
-        foreach (var v in variants.EnumerateArray())
-        {
-            if (v.TryGetProperty("price", out var p))
-            {
-                var raw = p.ValueKind == JsonValueKind.String ? p.GetString() : p.GetRawText();
-                if (decimal.TryParse(raw, System.Globalization.NumberStyles.Any,
-                    System.Globalization.CultureInfo.InvariantCulture, out var price))
-                    return (int)Math.Round(price);
-            }
-        }
-        return null;
-    }
-
-    private static string? ResolveImage(JsonElement root)
-    {
-        if (!root.TryGetProperty("images", out var images) ||
-            images.ValueKind != JsonValueKind.Array) return null;
-        foreach (var img in images.EnumerateArray())
-        {
-            if (img.TryGetProperty("src", out var src) && src.ValueKind == JsonValueKind.String)
-            {
-                var url = src.GetString();
-                if (!string.IsNullOrWhiteSpace(url)) return url;
-            }
-        }
-        return null;
+        return "";
     }
 
     // Longest prefixes first so "凍乾" isn't masked by a hypothetical single-char match
@@ -338,6 +194,10 @@ public class LovecatScanner
         {
             Url             = $"{Origin}/products/{encodedHandle}",
             Title           = title,
+            Brand           = ExtractBrand(title),
+            PetType         = DetectPetType(title, productType ?? "", tags),
+            IsPrescription  = DetectIsPrescription(title, tags),
+            Form            = DetectForm(title, productType ?? "", tags),
             IngredientsText = ingredientsText,
             NutritionText   = nutritionText,
             Ingredients     = ParseIngredients(ingredientsText),
@@ -346,29 +206,7 @@ public class LovecatScanner
             ProteinPct      = ParseNutrientPct(nutritionText, "蛋白質"),
             FatPct          = ParseNutrientPct(nutritionText, "脂肪"),
             FiberPct        = ParseNutrientPct(nutritionText, "粗纖維"),
-            MoisturePct     = ParseNutrientPct(nutritionText, "水分"),
-            PhosphorusMg    = ParsePhosphorus(nutritionText),
-            BrandSlug       = ResolveBrandSlug(vendor),
-            TypeSlug        = ResolveTypeSlug(productType, tags, title),
-            FormSlug        = ResolveFormSlug(productType, tags, title),
-            AgeSlug         = ResolveAgeSlug(tags, title),
-            Volume          = ResolveVolume(root),
-            Price           = ResolvePrice(root),
-            ImageUrl        = ResolveImage(root),
-            FlavorSlugs     = ResolveFlavorSlugs(tags, title),
-            FunctionalSlugs = ResolveFunctionalSlugs(tags, title),
-            SpecialSlugs    = ResolveSpecialSlugs(tags, title),
         };
-    }
-
-    private static double? ParsePhosphorus(string text)
-    {
-        if (string.IsNullOrEmpty(text)) return null;
-        var idx = text.IndexOf("磷", StringComparison.Ordinal);
-        if (idx < 0) return null;
-        var m = Regex.Match(text[(idx + 1)..], @"(\d+(?:\.\d+)?)\s*mg");
-        return m.Success && double.TryParse(m.Groups[1].Value, System.Globalization.NumberStyles.Any,
-            System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : null;
     }
 
     // Splits product HTML into named sections, e.g. "內容/成分", "添加物", "營養成分", "代謝能"
@@ -506,6 +344,10 @@ public class Product
 {
     public string Url             { get; set; } = "";
     public string Title           { get; set; } = "";
+    public string Brand           { get; set; } = "";
+    public string PetType         { get; set; } = "";   // "cat" | "dog" | ""
+    public bool   IsPrescription  { get; set; }
+    public string Form            { get; set; } = "";   // "wet" | "dry" | ""
     public string IngredientsText { get; set; } = "";
     public string NutritionText   { get; set; } = "";
     public List<Ingredient>           Ingredients { get; set; } = new();
@@ -514,18 +356,4 @@ public class Product
     public double? ProteinPct   { get; set; }
     public double? FatPct       { get; set; }
     public double? FiberPct     { get; set; }
-    public double? MoisturePct  { get; set; }
-    public double? PhosphorusMg { get; set; }
-
-    // Catalogue metadata
-    public string?       BrandSlug    { get; set; }
-    public string?       TypeSlug     { get; set; }  // cat | dog
-    public string?       FormSlug     { get; set; }  // wet | dry
-    public string?       AgeSlug      { get; set; }  // kitten | adult | senior | all
-    public string?       Volume       { get; set; }
-    public int?          Price        { get; set; }
-    public string?       ImageUrl     { get; set; }
-    public List<string>  FlavorSlugs      { get; set; } = new();
-    public List<string>  FunctionalSlugs  { get; set; } = new();
-    public List<string>  SpecialSlugs     { get; set; } = new();
 }

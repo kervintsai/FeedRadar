@@ -30,7 +30,7 @@ app.UseExceptionHandler(errApp => errApp.Run(async ctx =>
 {
     ctx.Response.ContentType = "application/json";
     ctx.Response.StatusCode  = 500;
-    var body = new ApiErrorResponse(false, new ApiErrorBody("SERVER_ERROR", "Internal server error"));
+    var body = new ApiErrorResponse(false, new ApiError("SERVER_ERROR", "Internal server error"));
     await ctx.Response.WriteAsync(JsonSerializer.Serialize(body));
 }));
 

@@ -8,22 +8,13 @@ public class FiltersController(ProductRepository repo, IMemoryCache cache) : Con
     [HttpGet]
     public IActionResult Get()
     {
-        if (!cache.TryGetValue("filters", out FiltersData? data))
+        if (!cache.TryGetValue("filters", out FiltersDto? data))
         {
             data = repo.GetFilters();
             cache.Set("filters", data, TimeSpan.FromHours(1));
         }
 
         Response.Headers.CacheControl = "public, max-age=3600";
-        return Ok(new ApiResponse<object>(true, new
-        {
-            types      = data!.Types,
-            forms      = data.Forms,
-            ages       = data.Ages,
-            brands     = data.Brands,
-            flavors    = data.Flavors,
-            functional = data.Functional,
-            special    = data.Special,
-        }));
+        return Ok(new ApiResponse<FiltersDto>(true, data));
     }
 }
