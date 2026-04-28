@@ -357,14 +357,14 @@ public class ProductRepository
         return (products, total);
     }
 
-    private ApiProductDto MapProduct(NpgsqlConnection conn, int id, NpgsqlDataReader r)
+    private ApiProductDto MapProduct(NpgsqlConnection _, int id, NpgsqlDataReader r)
     {
         var typeSlug  = r.IsDBNull(3) ? null : r.GetString(3);
         var formSlug  = r.IsDBNull(4) ? null : r.GetString(4);
         var ageSlug   = r.IsDBNull(5) ? null : r.GetString(5);
         var brandSlug = r.IsDBNull(2) ? null : r.GetString(2);
 
-        var brandLabel = brandSlug is null ? null : GetBrandLabel(conn, brandSlug);
+        var brandLabel = brandSlug is null ? null : GetBrandLabel(brandSlug);
 
         static string? TypeLabel(string? s) => s switch { "cat" => "貓", "dog" => "狗", _ => null };
         static string? FormLabel(string? s) => s switch { "wet" => "濕食", "dry" => "乾糧", _ => null };
@@ -397,8 +397,8 @@ public class ProductRepository
             return m.Success ? $"{m.Groups[1].Value} kcal/100g" : null;
         }
 
-        var flavors    = GetStrings(conn, "SELECT f.Label FROM ProductFlavors pf JOIN Flavors f ON f.Slug=pf.FlavorSlug WHERE pf.ProductId=@id", id);
-        var functional = GetStrings(conn, """
+        var flavors    = GetStrings("SELECT f.Label FROM ProductFlavors pf JOIN Flavors f ON f.Slug=pf.FlavorSlug WHERE pf.ProductId=@id", id);
+        var functional = GetStrings("""
             SELECT CASE FunctionalSlug
               WHEN 'kidney'   THEN '腎臟保健' WHEN 'urinary'  THEN '泌尿道保健'
               WHEN 'digest'   THEN '腸胃保健' WHEN 'skin'     THEN '皮膚毛髮'
@@ -406,7 +406,7 @@ public class ProductRepository
               WHEN 'weight'   THEN '體重管理' ELSE FunctionalSlug END
             FROM ProductFunctional WHERE ProductId=@id
             """, id);
-        var special    = GetStrings(conn, """
+        var special    = GetStrings("""
             SELECT CASE SpecialSlug
               WHEN 'grain-free'      THEN '無穀'
               WHEN 'hypoallergenic'  THEN '低敏' ELSE SpecialSlug END
@@ -440,17 +440,20 @@ public class ProductRepository
         );
     }
 
-    private static string? GetBrandLabel(NpgsqlConnection conn, string slug)
+    private string? GetBrandLabel(string slug)
     {
+        using var conn = new NpgsqlConnection(_connectionString);
+        conn.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT Label FROM Brands WHERE Slug=@s";
         cmd.Parameters.AddWithValue("s", slug);
-        var result = cmd.ExecuteScalar();
-        return result as string;
+        return cmd.ExecuteScalar() as string;
     }
 
-    private static List<string> GetStrings(NpgsqlConnection conn, string sql, int productId)
+    private List<string> GetStrings(string sql, int productId)
     {
+        using var conn = new NpgsqlConnection(_connectionString);
+        conn.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = sql;
         cmd.Parameters.AddWithValue("id", productId);
