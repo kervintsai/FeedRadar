@@ -117,8 +117,8 @@ public class ProductRepository
     // ── Products ──────────────────────────────────────────────────────────────
 
     public (List<ProductDto> Products, int Total) GetAll(
-        string? brand, string? ingredient, string? petType,
-        string? form, bool? isPrescription,
+        string? brand, string? ingredient, string? excludeIngredient,
+        string? petType, string? form, bool? isPrescription,
         int page, int limit)
     {
         using var conn = new NpgsqlConnection(_connectionString);
@@ -132,10 +132,25 @@ public class ProductRepository
             conditions.Add("Brand = @brand");
             cmd.Parameters.AddWithValue("brand", brand);
         }
-        if (!string.IsNullOrWhiteSpace(ingredient))
+
+        // ingredient: multi-value OR  e.g. "雞肉,鮭魚"
+        var includeList = Split(ingredient);
+        if (includeList.Count > 0)
         {
-            conditions.Add("IngredientsText ILIKE @ing");
-            cmd.Parameters.AddWithValue("ing", $"%{ingredient}%");
+            var parts = includeList.Select((v, i) =>
+            {
+                cmd.Parameters.AddWithValue($"ing{i}", $"%{v}%");
+                return $"IngredientsText ILIKE @ing{i}";
+            });
+            conditions.Add("(" + string.Join(" OR ", parts) + ")");
+        }
+
+        // excludeIngredient: multi-value AND NOT  e.g. "牛肉,豬肉"
+        var excludeList = Split(excludeIngredient);
+        foreach (var (v, i) in excludeList.Select((v, i) => (v, i)))
+        {
+            cmd.Parameters.AddWithValue($"exc{i}", $"%{v}%");
+            conditions.Add($"IngredientsText NOT ILIKE @exc{i}");
         }
         if (!string.IsNullOrWhiteSpace(petType))
         {
@@ -195,6 +210,12 @@ public class ProductRepository
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static List<string> Split(string? csv) =>
+        string.IsNullOrWhiteSpace(csv)
+            ? new()
+            : csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                 .ToList();
 
     private static int Count(NpgsqlConnection conn, string sql)
     {
