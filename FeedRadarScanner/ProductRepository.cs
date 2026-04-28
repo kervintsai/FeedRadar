@@ -118,6 +118,15 @@ public class ProductRepository
         cmd.ExecuteNonQuery();
     }
 
+    public int GetProductCount()
+    {
+        using var conn = new NpgsqlConnection(_connectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM Products;";
+        return Convert.ToInt32(cmd.ExecuteScalar() ?? 0);
+    }
+
     public void TruncateAll()
     {
         using var conn = new NpgsqlConnection(_connectionString);

@@ -25,21 +25,26 @@ string[] collections =
 int total = 0;
 foreach (var url in collections)
 {
-    Console.WriteLine($"\n[Collection] {url}");
+    Console.WriteLine($"\n========================================");
+    Console.WriteLine($"[Collection] {url}");
     try
     {
         var products = await scanner.ScanAsync(url);
-        Console.WriteLine($"Saving {products.Count} products...");
+        Console.WriteLine($"[Collection] Fetched {products.Count} products, saving...");
         foreach (var p in products)
             repo.Upsert(p);
         total += products.Count;
+        Console.WriteLine($"[Collection] Saved OK. Running total: {total}");
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"[ERR] Collection failed: {ex.Message}");
+        Console.WriteLine($"[ERR] Collection failed: {ex.GetType().Name}: {ex.Message}");
+        Console.WriteLine(ex.StackTrace);
     }
 }
 
-Console.WriteLine($"\nDone. Total saved: {total}");
+Console.WriteLine($"\n========================================");
+Console.WriteLine($"Done. Total saved: {total}");
+Console.WriteLine($"DB product count: {repo.GetProductCount()}");
 
 repo.RebuildFilters();
