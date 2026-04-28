@@ -3,19 +3,33 @@ var connectionString =
     Environment.GetEnvironmentVariable("DATABASE_URL")
     ?? (args.Length > 0 ? args[0] : "Host=localhost;Database=feedradar;Username=postgres;Password=postgres");
 
-Console.WriteLine($"Connecting to database...");
+Console.WriteLine("Connecting to database...");
 
 var scanner = new LovecatScanner();
-var repo = new ProductRepository(connectionString);
+var repo    = new ProductRepository(connectionString);
 
 repo.TruncateAll();
 
-var products = await scanner.ScanAsync(
-    "https://www.lovecat.com.tw/collections/%E7%8A%AC%E4%B9%BE%E7%B3%A7%E4%B8%BB%E9%A3%9F_%E5%85%A8%E9%83%A8%E5%95%86%E5%93%81-20210721151014"
-);
+string[] collections =
+[
+    "https://www.lovecat.com.tw/collections/犬乾糧主食_全部商品-20210721151014",
+    "https://www.lovecat.com.tw/collections/犬罐頭-餐包_全部商品",
+    "https://www.lovecat.com.tw/collections/犬點心零食_全部商品-20210721142445",
+    "https://www.lovecat.com.tw/collections/貓-乾糧主食_全部商品-20210721141926",
+    "https://www.lovecat.com.tw/collections/貓-罐頭-餐包_全部商品",
+    "https://www.lovecat.com.tw/collections/貓零食點心_全部商品",
+    "https://www.lovecat.com.tw/collections/處方乾糧罐頭_全部商品",
+];
 
-Console.WriteLine($"Saving {products.Count} products...");
-foreach (var p in products)
-    repo.Upsert(p);
+int total = 0;
+foreach (var url in collections)
+{
+    Console.WriteLine($"\n[Collection] {url}");
+    var products = await scanner.ScanAsync(url);
+    Console.WriteLine($"Saving {products.Count} products...");
+    foreach (var p in products)
+        repo.Upsert(p);
+    total += products.Count;
+}
 
-Console.WriteLine("Done.");
+Console.WriteLine($"\nDone. Total saved: {total}");
