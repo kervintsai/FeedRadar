@@ -37,6 +37,7 @@ public record FiltersData(
 public record NutritionDto(
     [property: JsonPropertyName("protein")]    string? Protein,
     [property: JsonPropertyName("fat")]        string? Fat,
+    [property: JsonPropertyName("fiber")]      string? Fiber,
     [property: JsonPropertyName("carbs")]      string? Carbs,
     [property: JsonPropertyName("phosphorus")] string? Phosphorus,
     [property: JsonPropertyName("calories")]   string? Calories

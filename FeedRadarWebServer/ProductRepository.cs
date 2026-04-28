@@ -337,7 +337,7 @@ public class ProductRepository
         cmd.CommandText = $"""
             SELECT DISTINCT p.Id, p.Title, p.BrandSlug, p.TypeSlug, p.FormSlug, p.AgeSlug,
                    p.Volume, p.Price, p.ImageUrl,
-                   p.ProteinPct, p.FatPct, p.MoisturePct, p.PhosphorusMg, p.CaloriesText
+                   p.ProteinPct, p.FatPct, p.MoisturePct, p.PhosphorusMg, p.CaloriesText, p.FiberPct
             FROM Products p
             {where}
             ORDER BY p.Title
@@ -379,6 +379,7 @@ public class ProductRepository
         var moistPct   = r.IsDBNull(11) ? (double?)null : r.GetDouble(11);
         var phosphoMg  = r.IsDBNull(12) ? (double?)null : r.GetDouble(12);
         var calText    = r.IsDBNull(13) ? null : r.GetString(13);
+        var fiberPct   = r.IsDBNull(14) ? (double?)null : r.GetDouble(14);
 
         double? carbsPct = null;
         if (proteinPct.HasValue && fatPct.HasValue && moistPct.HasValue)
@@ -431,6 +432,7 @@ public class ProductRepository
             Nutrition: new NutritionDto(
                 Protein:    FormatPct(proteinPct),
                 Fat:        FormatPct(fatPct),
+                Fiber:      FormatPct(fiberPct),
                 Carbs:      FormatPct(carbsPct),
                 Phosphorus: FormatPhospho(phosphoMg),
                 Calories:   FormatCalories(calText)
