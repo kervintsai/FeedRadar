@@ -87,6 +87,97 @@ public class ProductRepository
         Exec(conn, "ALTER TABLE ProductIngredients ADD COLUMN IF NOT EXISTS AmountText TEXT;");
         Exec(conn, "ALTER TABLE Ingredients ADD COLUMN IF NOT EXISTS BaseName TEXT NOT NULL DEFAULT ''");
         Exec(conn, "ALTER TABLE Products ADD COLUMN IF NOT EXISTS CaloriesText TEXT;");
+
+        foreach (var (col, def) in new[]
+        {
+            ("BrandSlug",    "TEXT"),
+            ("TypeSlug",     "TEXT"),
+            ("FormSlug",     "TEXT"),
+            ("AgeSlug",      "TEXT"),
+            ("Volume",       "TEXT"),
+            ("Price",        "INTEGER"),
+            ("ImageUrl",     "TEXT"),
+            ("PhosphorusMg", "DOUBLE PRECISION"),
+            ("MoisturePct",  "DOUBLE PRECISION"),
+        })
+            Exec(conn, $"ALTER TABLE Products ADD COLUMN IF NOT EXISTS {col} {def};");
+
+        Exec(conn, """
+            CREATE TABLE IF NOT EXISTS Brands (
+                Slug  TEXT PRIMARY KEY,
+                Label TEXT NOT NULL
+            );
+            """);
+
+        Exec(conn, """
+            CREATE TABLE IF NOT EXISTS Flavors (
+                Slug  TEXT PRIMARY KEY,
+                Label TEXT NOT NULL
+            );
+            """);
+
+        Exec(conn, """
+            CREATE TABLE IF NOT EXISTS ProductFlavors (
+                ProductId   INTEGER NOT NULL,
+                FlavorSlug  TEXT    NOT NULL,
+                PRIMARY KEY (ProductId, FlavorSlug)
+            );
+            """);
+
+        Exec(conn, """
+            CREATE TABLE IF NOT EXISTS ProductFunctional (
+                ProductId      INTEGER NOT NULL,
+                FunctionalSlug TEXT    NOT NULL,
+                PRIMARY KEY (ProductId, FunctionalSlug)
+            );
+            """);
+
+        Exec(conn, """
+            CREATE TABLE IF NOT EXISTS ProductSpecial (
+                ProductId   INTEGER NOT NULL,
+                SpecialSlug TEXT    NOT NULL,
+                PRIMARY KEY (ProductId, SpecialSlug)
+            );
+            """);
+
+        SeedLookups(conn);
+    }
+
+    private static void SeedLookups(NpgsqlConnection conn)
+    {
+        var brands = new[]
+        {
+            ("wangmiao",  "汪喵星球"), ("alleycat",  "巷弄貓"),
+            ("nutrience", "紐崔斯"),   ("ziwi",      "巔峰"),
+            ("ziwipeak",  "Ziwi"),     ("schesir",   "Schesir"),
+            ("almo",      "Almo Nature"), ("applaws", "Applaws"),
+            ("weruva",    "Weruva"),   ("tikicat",   "Tiki Cat"),
+            ("cesar",     "西莎"),     ("hills",     "Hill's"),
+        };
+        foreach (var (slug, label) in brands)
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "INSERT INTO Brands(Slug,Label) VALUES(@s,@l) ON CONFLICT DO NOTHING;";
+            cmd.Parameters.AddWithValue("s", slug);
+            cmd.Parameters.AddWithValue("l", label);
+            cmd.ExecuteNonQuery();
+        }
+
+        var flavors = new[]
+        {
+            ("chicken","雞肉"), ("beef","牛肉"), ("fish","魚肉"),
+            ("tuna","鮪魚"),   ("turkey","火雞"), ("lamb","羊肉"),
+            ("duck","鴨肉"),   ("salmon","鮭魚"), ("venison","鹿肉"),
+            ("rabbit","兔肉"), ("quail","鵪鶉"),  ("mixed","綜合"),
+        };
+        foreach (var (slug, label) in flavors)
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "INSERT INTO Flavors(Slug,Label) VALUES(@s,@l) ON CONFLICT DO NOTHING;";
+            cmd.Parameters.AddWithValue("s", slug);
+            cmd.Parameters.AddWithValue("l", label);
+            cmd.ExecuteNonQuery();
+        }
     }
 
     public void Upsert(Product product)
@@ -97,8 +188,16 @@ public class ProductRepository
         // 1. Upsert product row, returning its Id
         var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO Products (Url, Title, IngredientsText, NutritionText, CaloriesText, ProteinPct, FatPct, FiberPct, ScannedAt)
-            VALUES (@url, @title, @ingredients, @nutrition, @calories, @protein, @fat, @fiber, @scannedAt)
+            INSERT INTO Products (
+                Url, Title, IngredientsText, NutritionText, CaloriesText,
+                ProteinPct, FatPct, FiberPct, MoisturePct, PhosphorusMg, ScannedAt,
+                BrandSlug, TypeSlug, FormSlug, AgeSlug, Volume, Price, ImageUrl
+            )
+            VALUES (
+                @url, @title, @ingredients, @nutrition, @calories,
+                @protein, @fat, @fiber, @moisture, @phospho, @scannedAt,
+                @brand, @type, @form, @age, @volume, @price, @image
+            )
             ON CONFLICT (Url) DO UPDATE SET
                 Title           = EXCLUDED.Title,
                 IngredientsText = EXCLUDED.IngredientsText,
@@ -107,18 +206,36 @@ public class ProductRepository
                 ProteinPct      = EXCLUDED.ProteinPct,
                 FatPct          = EXCLUDED.FatPct,
                 FiberPct        = EXCLUDED.FiberPct,
-                ScannedAt       = EXCLUDED.ScannedAt
+                MoisturePct     = EXCLUDED.MoisturePct,
+                PhosphorusMg    = EXCLUDED.PhosphorusMg,
+                ScannedAt       = EXCLUDED.ScannedAt,
+                BrandSlug       = EXCLUDED.BrandSlug,
+                TypeSlug        = EXCLUDED.TypeSlug,
+                FormSlug        = EXCLUDED.FormSlug,
+                AgeSlug         = EXCLUDED.AgeSlug,
+                Volume          = EXCLUDED.Volume,
+                Price           = EXCLUDED.Price,
+                ImageUrl        = EXCLUDED.ImageUrl
             RETURNING Id;
             """;
         cmd.Parameters.AddWithValue("url",        product.Url);
         cmd.Parameters.AddWithValue("title",      product.Title);
         cmd.Parameters.AddWithValue("ingredients", product.IngredientsText);
         cmd.Parameters.AddWithValue("nutrition",  product.NutritionText);
-        cmd.Parameters.AddWithValue("calories",   product.CaloriesText as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("protein",    product.ProteinPct as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("fat",        product.FatPct    as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("fiber",      product.FiberPct  as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("calories",   product.CaloriesText   as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("protein",    product.ProteinPct     as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("fat",        product.FatPct         as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("fiber",      product.FiberPct       as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("moisture",   product.MoisturePct    as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("phospho",    product.PhosphorusMg   as object ?? DBNull.Value);
         cmd.Parameters.AddWithValue("scannedAt",  DateTime.UtcNow.ToString("O"));
+        cmd.Parameters.AddWithValue("brand",      product.BrandSlug      as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("type",       product.TypeSlug       as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("form",       product.FormSlug       as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("age",        product.AgeSlug        as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("volume",     product.Volume         as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("price",      product.Price          as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("image",      product.ImageUrl       as object ?? DBNull.Value);
         var productId = (int)(cmd.ExecuteScalar() ?? 0);
 
         // 2. Replace product ingredients
@@ -174,6 +291,43 @@ public class ProductRepository
             sectCmd.Parameters.AddWithValue("text", sectionText);
             sectCmd.ExecuteNonQuery();
         }
+
+        // 4. Replace flavor / functional / special join rows
+        UpsertSlugs(conn, productId, "ProductFlavors",    "FlavorSlug",    product.FlavorSlugs);
+        UpsertSlugs(conn, productId, "ProductFunctional", "FunctionalSlug", product.FunctionalSlugs);
+        UpsertSlugs(conn, productId, "ProductSpecial",    "SpecialSlug",   product.SpecialSlugs);
+
+        // 5. Ensure unknown brand/flavor slugs exist in their lookup tables
+        if (product.BrandSlug is not null)
+            EnsureSlug(conn, "Brands", product.BrandSlug, product.BrandSlug);
+        foreach (var fs in product.FlavorSlugs)
+            EnsureSlug(conn, "Flavors", fs, fs);
+    }
+
+    private static void UpsertSlugs(NpgsqlConnection conn, int productId, string table, string col, List<string> slugs)
+    {
+        using var del = conn.CreateCommand();
+        del.CommandText = $"DELETE FROM {table} WHERE ProductId=@pid;";
+        del.Parameters.AddWithValue("pid", productId);
+        del.ExecuteNonQuery();
+
+        foreach (var slug in slugs)
+        {
+            using var ins = conn.CreateCommand();
+            ins.CommandText = $"INSERT INTO {table}(ProductId,{col}) VALUES(@pid,@slug) ON CONFLICT DO NOTHING;";
+            ins.Parameters.AddWithValue("pid",  productId);
+            ins.Parameters.AddWithValue("slug", slug);
+            ins.ExecuteNonQuery();
+        }
+    }
+
+    private static void EnsureSlug(NpgsqlConnection conn, string table, string slug, string fallbackLabel)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"INSERT INTO {table}(Slug,Label) VALUES(@s,@l) ON CONFLICT DO NOTHING;";
+        cmd.Parameters.AddWithValue("s", slug);
+        cmd.Parameters.AddWithValue("l", fallbackLabel);
+        cmd.ExecuteNonQuery();
     }
 
     // Clears all product data and resets identity sequences before a fresh scan.

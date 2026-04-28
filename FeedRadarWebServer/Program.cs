@@ -1,3 +1,5 @@
+using System.Text.Json;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.HttpOverrides;
 using Scalar.AspNetCore;
 
@@ -23,6 +25,14 @@ builder.Services.AddSingleton<ProductRepository>();
 var app = builder.Build();
 
 app.UseForwardedHeaders();
+
+app.UseExceptionHandler(errApp => errApp.Run(async ctx =>
+{
+    ctx.Response.ContentType = "application/json";
+    ctx.Response.StatusCode  = 500;
+    var body = new ApiErrorResponse(false, new ApiErrorBody("SERVER_ERROR", "Internal server error"));
+    await ctx.Response.WriteAsync(JsonSerializer.Serialize(body));
+}));
 
 app.MapOpenApi();
 app.MapScalarApiReference();
