@@ -10,6 +10,7 @@ public record FiltersDto(
     List<FilterOption> Brands,
     List<FilterOption> Ingredients,
     List<FilterOption> PetTypes,
+    List<FilterOption> AgeStages,
     List<FilterOption> Forms,
     List<FilterOption> IsPrescription
 );
@@ -20,8 +21,10 @@ public record ProductDto(
     string  Title,
     string  Brand,
     string  PetType,
+    string  AgeStage,
     bool    IsPrescription,
     string  Form,
+    string? ImageUrl,
     string  IngredientsText,
     string  NutritionText,
     double? ProteinPct,

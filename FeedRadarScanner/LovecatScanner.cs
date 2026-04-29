@@ -79,6 +79,21 @@ public class LovecatScanner
         return "";
     }
 
+    private static string DetectAgeStage(string title, IEnumerable<string> tags)
+    {
+        var sources = new[] { title }.Concat(tags);
+        foreach (var s in sources)
+        {
+            if (s.Contains("幼犬") || s.Contains("幼貓") || s.Contains("幼兔") ||
+                s.Contains("幼齡") || s.Contains("幼年") || s.Contains("成長期") || s.Contains("離乳"))
+                return "puppy";
+            if (s.Contains("老犬") || s.Contains("老貓") || s.Contains("老兔") ||
+                s.Contains("高齡") || s.Contains("熟齡") || s.Contains("老年") || s.Contains("銀髮"))
+                return "senior";
+        }
+        return "";
+    }
+
     // Longest prefixes first so "凍乾" isn't masked by a hypothetical single-char match
     private static readonly string[] IngredientPrefixes =
         { "冷凍乾燥", "凍乾", "去骨", "脫水", "乾燥", "烘乾", "新鮮", "冷凍", "有機" };
@@ -187,6 +202,15 @@ public class LovecatScanner
             foreach (var t in tagsEl.EnumerateArray())
                 if (t.ValueKind == JsonValueKind.String) tags.Add(t.GetString() ?? "");
 
+        // Extract first product image URL
+        string? imageUrl = null;
+        if (root.TryGetProperty("images", out var imagesEl) && imagesEl.ValueKind == JsonValueKind.Array)
+        {
+            var first = imagesEl.EnumerateArray().FirstOrDefault();
+            if (first.ValueKind == JsonValueKind.Object && first.TryGetProperty("src", out var srcEl))
+                imageUrl = srcEl.GetString();
+        }
+
         var allSections = ExtractAllSections(root);
         var rawBlock    = allSections.GetValueOrDefault("內容", "");
 
@@ -215,8 +239,10 @@ public class LovecatScanner
             Title           = title,
             Brand           = ExtractBrand(title),
             PetType         = DetectPetType(title, productType ?? "", tags),
+            AgeStage        = DetectAgeStage(title, tags),
             IsPrescription  = DetectIsPrescription(title, tags),
             Form            = DetectForm(title, productType ?? "", tags),
+            ImageUrl        = imageUrl,
             IngredientsText = ingredientsText,
             NutritionText   = nutritionText,
             Ingredients     = ParseIngredients(ingredientsText),
@@ -365,8 +391,10 @@ public class Product
     public string Title           { get; set; } = "";
     public string Brand           { get; set; } = "";
     public string PetType         { get; set; } = "";   // "cat" | "dog" | ""
+    public string AgeStage        { get; set; } = "";   // "puppy" | "senior" | ""
     public bool   IsPrescription  { get; set; }
     public string Form            { get; set; } = "";   // "wet" | "dry" | ""
+    public string? ImageUrl       { get; set; }
     public string IngredientsText { get; set; } = "";
     public string NutritionText   { get; set; } = "";
     public List<Ingredient>           Ingredients { get; set; } = new();

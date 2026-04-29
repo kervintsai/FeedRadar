@@ -61,8 +61,10 @@ public class ProductRepository
         {
             ("Brand",          "TEXT NOT NULL DEFAULT ''"),
             ("PetType",        "TEXT NOT NULL DEFAULT ''"),
+            ("AgeStage",       "TEXT NOT NULL DEFAULT ''"),
             ("IsPrescription", "BOOLEAN NOT NULL DEFAULT FALSE"),
             ("Form",           "TEXT NOT NULL DEFAULT ''"),
+            ("ImageUrl",       "TEXT"),
             ("NutritionText",  "TEXT NOT NULL DEFAULT ''"),
             ("CaloriesText",   "TEXT"),
             ("ProteinPct",     "DOUBLE PRECISION"),
@@ -103,6 +105,7 @@ public class ProductRepository
             Brands:         all.Where(r => r.Category == "brand").Select(Map).ToList(),
             Ingredients:    all.Where(r => r.Category == "ingredient").Select(Map).ToList(),
             PetTypes:       all.Where(r => r.Category == "petType").Select(Map).ToList(),
+            AgeStages:      all.Where(r => r.Category == "ageStage").Select(Map).ToList(),
             Forms:          all.Where(r => r.Category == "form").Select(Map).ToList(),
             IsPrescription: all.Where(r => r.Category == "isPrescription").Select(Map).ToList()
         );
@@ -124,6 +127,12 @@ public class ProductRepository
             cmd.Parameters.AddWithValue("kw", $"%{meat}%");
             var count = (int)(cmd.ExecuteScalar() ?? 0);
             if (count > 0) rows.Add(("ingredient", meat, meat, count));
+        }
+
+        foreach (var (value, label) in new[] { ("puppy", "幼齡"), ("senior", "高齡") })
+        {
+            var c = Count(conn, $"SELECT COUNT(*) FROM Products WHERE AgeStage='{value}'");
+            if (c > 0) rows.Add(("ageStage", value, label, c));
         }
 
         foreach (var (value, label) in new[] { ("cat", "貓"), ("dog", "狗") })
@@ -161,7 +170,7 @@ public class ProductRepository
 
     public (List<ProductDto> Products, int Total) GetAll(
         string? brand, string? ingredient, string? excludeIngredient,
-        string? petType, string? form, bool? isPrescription,
+        string? petType, string? ageStage, string? form, bool? isPrescription,
         int page, int limit)
     {
         using var conn = new NpgsqlConnection(_connectionString);
@@ -200,6 +209,11 @@ public class ProductRepository
             conditions.Add("PetType = @petType");
             cmd.Parameters.AddWithValue("petType", petType);
         }
+        if (!string.IsNullOrWhiteSpace(ageStage))
+        {
+            conditions.Add("AgeStage = @ageStage");
+            cmd.Parameters.AddWithValue("ageStage", ageStage);
+        }
         if (!string.IsNullOrWhiteSpace(form))
         {
             conditions.Add("Form = @form");
@@ -225,8 +239,8 @@ public class ProductRepository
         var total = Convert.ToInt32(countCmd.ExecuteScalar() ?? 0);
 
         cmd.CommandText = $"""
-            SELECT Id, Title, Brand, PetType, IsPrescription, Form,
-                   IngredientsText, NutritionText, ProteinPct, FatPct, FiberPct, CaloriesText
+            SELECT Id, Title, Brand, PetType, AgeStage, IsPrescription, Form,
+                   ImageUrl, IngredientsText, NutritionText, ProteinPct, FatPct, FiberPct, CaloriesText
             FROM Products {where}
             ORDER BY Title
             LIMIT @lim OFFSET @off;
@@ -235,18 +249,20 @@ public class ProductRepository
         cmd.Parameters.AddWithValue("off", (page - 1) * limit);
 
         var products = Query<ProductDto>(cmd, r => new ProductDto(
-            Id:             r.GetInt32(0),
-            Title:          r.GetString(1),
-            Brand:          r.GetString(2),
-            PetType:        r.GetString(3),
-            IsPrescription: r.GetBoolean(4),
-            Form:           r.GetString(5),
-            IngredientsText: r.GetString(6),
-            NutritionText:  r.GetString(7),
-            ProteinPct:     r.IsDBNull(8)  ? null : r.GetDouble(8),
-            FatPct:         r.IsDBNull(9)  ? null : r.GetDouble(9),
-            FiberPct:       r.IsDBNull(10) ? null : r.GetDouble(10),
-            CaloriesText:   r.IsDBNull(11) ? null : r.GetString(11)
+            Id:              r.GetInt32(0),
+            Title:           r.GetString(1),
+            Brand:           r.GetString(2),
+            PetType:         r.GetString(3),
+            AgeStage:        r.GetString(4),
+            IsPrescription:  r.GetBoolean(5),
+            Form:            r.GetString(6),
+            ImageUrl:        r.IsDBNull(7)  ? null : r.GetString(7),
+            IngredientsText: r.GetString(8),
+            NutritionText:   r.GetString(9),
+            ProteinPct:      r.IsDBNull(10) ? null : r.GetDouble(10),
+            FatPct:          r.IsDBNull(11) ? null : r.GetDouble(11),
+            FiberPct:        r.IsDBNull(12) ? null : r.GetDouble(12),
+            CaloriesText:    r.IsDBNull(13) ? null : r.GetString(13)
         ));
 
         return (products, total);

@@ -60,8 +60,10 @@ public class ProductRepository
         {
             ("Brand",          "TEXT NOT NULL DEFAULT ''"),
             ("PetType",        "TEXT NOT NULL DEFAULT ''"),
+            ("AgeStage",       "TEXT NOT NULL DEFAULT ''"),
             ("IsPrescription", "BOOLEAN NOT NULL DEFAULT FALSE"),
             ("Form",           "TEXT NOT NULL DEFAULT ''"),
+            ("ImageUrl",       "TEXT"),
             ("NutritionText",  "TEXT NOT NULL DEFAULT ''"),
             ("CaloriesText",   "TEXT"),
             ("ProteinPct",     "DOUBLE PRECISION"),
@@ -79,21 +81,23 @@ public class ProductRepository
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT INTO Products (
-                Url, Title, Brand, PetType, IsPrescription, Form,
-                IngredientsText, NutritionText, CaloriesText,
+                Url, Title, Brand, PetType, AgeStage, IsPrescription, Form,
+                ImageUrl, IngredientsText, NutritionText, CaloriesText,
                 ProteinPct, FatPct, FiberPct, ScannedAt
             )
             VALUES (
-                @url, @title, @brand, @petType, @isPrescription, @form,
-                @ingredients, @nutrition, @calories,
+                @url, @title, @brand, @petType, @ageStage, @isPrescription, @form,
+                @imageUrl, @ingredients, @nutrition, @calories,
                 @protein, @fat, @fiber, @scannedAt
             )
             ON CONFLICT (Url) DO UPDATE SET
                 Title           = EXCLUDED.Title,
                 Brand           = EXCLUDED.Brand,
                 PetType         = EXCLUDED.PetType,
+                AgeStage        = EXCLUDED.AgeStage,
                 IsPrescription  = EXCLUDED.IsPrescription,
                 Form            = EXCLUDED.Form,
+                ImageUrl        = EXCLUDED.ImageUrl,
                 IngredientsText = EXCLUDED.IngredientsText,
                 NutritionText   = EXCLUDED.NutritionText,
                 CaloriesText    = EXCLUDED.CaloriesText,
@@ -106,8 +110,10 @@ public class ProductRepository
         cmd.Parameters.AddWithValue("title",          product.Title);
         cmd.Parameters.AddWithValue("brand",          product.Brand);
         cmd.Parameters.AddWithValue("petType",        product.PetType);
+        cmd.Parameters.AddWithValue("ageStage",       product.AgeStage);
         cmd.Parameters.AddWithValue("isPrescription", product.IsPrescription);
         cmd.Parameters.AddWithValue("form",           product.Form);
+        cmd.Parameters.AddWithValue("imageUrl",       product.ImageUrl as object ?? DBNull.Value);
         cmd.Parameters.AddWithValue("ingredients",    product.IngredientsText);
         cmd.Parameters.AddWithValue("nutrition",      product.NutritionText);
         cmd.Parameters.AddWithValue("calories",       product.CaloriesText as object ?? DBNull.Value);
@@ -162,6 +168,16 @@ public class ProductRepository
             cmd.Parameters.AddWithValue("kw", $"%{meat}%");
             var count = (int)(cmd.ExecuteScalar() ?? 0);
             if (count > 0) rows.Add(("ingredient", meat, meat, count));
+        }
+
+        // AgeStages
+        foreach (var (value, label) in new[] { ("puppy", "幼齡"), ("senior", "高齡") })
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*)::int FROM Products WHERE AgeStage = @v;";
+            cmd.Parameters.AddWithValue("v", value);
+            var count = (int)(cmd.ExecuteScalar() ?? 0);
+            if (count > 0) rows.Add(("ageStage", value, label, count));
         }
 
         // PetTypes
