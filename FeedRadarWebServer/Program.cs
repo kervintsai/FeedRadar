@@ -24,6 +24,10 @@ builder.Services.AddSingleton<ProductRepository>();
 
 var app = builder.Build();
 
+Console.WriteLine($"[Env] DATABASE_URL set={!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DATABASE_URL"))}");
+Console.WriteLine($"[Env] PORT={Environment.GetEnvironmentVariable("PORT") ?? "(not set)"}");
+Console.WriteLine($"[Env] ASPNETCORE_ENVIRONMENT={Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "(not set)"}");
+
 app.UseForwardedHeaders();
 
 app.UseExceptionHandler(errApp => errApp.Run(async ctx =>
