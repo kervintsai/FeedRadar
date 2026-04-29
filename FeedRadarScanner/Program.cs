@@ -10,7 +10,7 @@ var repo    = new ProductRepository(connectionString);
 
 repo.TruncateAll();
 
-string[] collections =
+string[] allCollections =
 [
     "https://www.lovecat.com.tw/collections/犬乾糧主食_全部商品-20210721151014",
     "https://www.lovecat.com.tw/collections/犬罐頭-餐包_全部商品",
@@ -21,6 +21,17 @@ string[] collections =
     "https://www.lovecat.com.tw/collections/處方乾糧罐頭_全部商品",
     "https://www.lovecat.com.tw/collections/冷凍生鮮食專區_全部商品",
 ];
+
+// QUICK_SCAN=true → only scan one dog + one cat collection for fast testing
+string[] quickCollections =
+[
+    "https://www.lovecat.com.tw/collections/犬點心零食_全部商品-20210721142445",
+    "https://www.lovecat.com.tw/collections/貓零食點心_全部商品",
+];
+
+var quickScan = Environment.GetEnvironmentVariable("QUICK_SCAN") == "true";
+var collections = quickScan ? quickCollections : allCollections;
+Console.WriteLine(quickScan ? "[Mode] QUICK_SCAN — 2 collections only" : "[Mode] FULL_SCAN — all collections");
 
 int total = 0;
 foreach (var url in collections)
