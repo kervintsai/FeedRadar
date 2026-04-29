@@ -1,9 +1,16 @@
-﻿################################################################################
-# 這個 .gitignore 檔案由 Microsoft(R) Visual Studio 自動建立。
-################################################################################
+# Build output
+bin/
+obj/
 
-/FeedRadarScanner/bin/Debug/net10.0
-/.vs
-/FeedRadarWebServer/bin/Debug/net10.0
-/FeedRadarWebServer/obj
-/FeedRadarScanner/obj
+# User-specific files
+*.user
+*.suo
+.vs/
+
+# Environment
+.env
+*.local
+
+# OS
+.DS_Store
+Thumbs.db
