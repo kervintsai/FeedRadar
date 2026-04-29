@@ -30,6 +30,9 @@ public record ProductDto(
     double? ProteinPct,
     double? FatPct,
     double? FiberPct,
+    double? MoisturePct,
+    double? AshPct,
+    double? CarbsPct,
     string? CaloriesText
 );
 

@@ -70,6 +70,9 @@ public class ProductRepository
             ("ProteinPct",     "DOUBLE PRECISION"),
             ("FatPct",         "DOUBLE PRECISION"),
             ("FiberPct",       "DOUBLE PRECISION"),
+            ("MoisturePct",    "DOUBLE PRECISION"),
+            ("AshPct",         "DOUBLE PRECISION"),
+            ("CarbsPct",       "DOUBLE PRECISION"),
         })
             Exec(conn, $"ALTER TABLE Products ADD COLUMN IF NOT EXISTS {col} {def};");
 
@@ -280,7 +283,8 @@ public class ProductRepository
 
         cmd.CommandText = $"""
             SELECT Id, Title, Brand, PetType, AgeStage, IsPrescription, Form,
-                   ImageUrl, IngredientsText, NutritionText, ProteinPct, FatPct, FiberPct, CaloriesText
+                   ImageUrl, IngredientsText, NutritionText,
+                   ProteinPct, FatPct, FiberPct, MoisturePct, AshPct, CarbsPct, CaloriesText
             FROM Products {where}
             ORDER BY Title
             LIMIT @lim OFFSET @off;
@@ -302,7 +306,10 @@ public class ProductRepository
             ProteinPct:      r.IsDBNull(10) ? null : r.GetDouble(10),
             FatPct:          r.IsDBNull(11) ? null : r.GetDouble(11),
             FiberPct:        r.IsDBNull(12) ? null : r.GetDouble(12),
-            CaloriesText:    r.IsDBNull(13) ? null : r.GetString(13)
+            MoisturePct:     r.IsDBNull(13) ? null : r.GetDouble(13),
+            AshPct:          r.IsDBNull(14) ? null : r.GetDouble(14),
+            CarbsPct:        r.IsDBNull(15) ? null : r.GetDouble(15),
+            CaloriesText:    r.IsDBNull(16) ? null : r.GetString(16)
         ));
 
         return (products, total);

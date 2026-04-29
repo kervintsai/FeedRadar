@@ -69,6 +69,9 @@ public class ProductRepository
             ("ProteinPct",     "DOUBLE PRECISION"),
             ("FatPct",         "DOUBLE PRECISION"),
             ("FiberPct",       "DOUBLE PRECISION"),
+            ("MoisturePct",    "DOUBLE PRECISION"),
+            ("AshPct",         "DOUBLE PRECISION"),
+            ("CarbsPct",       "DOUBLE PRECISION"),
         })
             Exec(conn, $"ALTER TABLE Products ADD COLUMN IF NOT EXISTS {col} {def};");
     }
@@ -83,12 +86,12 @@ public class ProductRepository
             INSERT INTO Products (
                 Url, Title, Brand, PetType, AgeStage, IsPrescription, Form,
                 ImageUrl, IngredientsText, NutritionText, CaloriesText,
-                ProteinPct, FatPct, FiberPct, ScannedAt
+                ProteinPct, FatPct, FiberPct, MoisturePct, AshPct, CarbsPct, ScannedAt
             )
             VALUES (
                 @url, @title, @brand, @petType, @ageStage, @isPrescription, @form,
                 @imageUrl, @ingredients, @nutrition, @calories,
-                @protein, @fat, @fiber, @scannedAt
+                @protein, @fat, @fiber, @moisture, @ash, @carbs, @scannedAt
             )
             ON CONFLICT (Url) DO UPDATE SET
                 Title           = EXCLUDED.Title,
@@ -104,6 +107,9 @@ public class ProductRepository
                 ProteinPct      = EXCLUDED.ProteinPct,
                 FatPct          = EXCLUDED.FatPct,
                 FiberPct        = EXCLUDED.FiberPct,
+                MoisturePct     = EXCLUDED.MoisturePct,
+                AshPct          = EXCLUDED.AshPct,
+                CarbsPct        = EXCLUDED.CarbsPct,
                 ScannedAt       = EXCLUDED.ScannedAt;
             """;
         cmd.Parameters.AddWithValue("url",            product.Url);
@@ -117,9 +123,12 @@ public class ProductRepository
         cmd.Parameters.AddWithValue("ingredients",    product.IngredientsText);
         cmd.Parameters.AddWithValue("nutrition",      product.NutritionText);
         cmd.Parameters.AddWithValue("calories",       product.CaloriesText as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("protein",        product.ProteinPct   as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("fat",            product.FatPct       as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("fiber",          product.FiberPct     as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("protein",        product.ProteinPct  as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("fat",            product.FatPct      as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("fiber",          product.FiberPct    as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("moisture",       product.MoisturePct as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("ash",            product.AshPct      as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("carbs",          product.CarbsPct    as object ?? DBNull.Value);
         cmd.Parameters.AddWithValue("scannedAt",      DateTime.UtcNow.ToString("O"));
         cmd.ExecuteNonQuery();
     }

@@ -220,12 +220,15 @@ public class LovecatScanner
                 imageUrl = srcEl.GetString();
         }
 
-        // Debug: print root keys + image result for first 3 products
+        // Debug: print image fields + result for first 3 products
         if (_debugCount < 3)
         {
-            var keys = root.EnumerateObject().Select(p => p.Name).ToList();
-            Console.WriteLine($"[Debug:keys] {handle} → [{string.Join(", ", keys)}]");
-            Console.WriteLine($"[Debug:image] imageUrl={imageUrl ?? "null"}");
+            root.TryGetProperty("photo_urls",     out var dbgPhotoUrls);
+            root.TryGetProperty("featured_image", out var dbgFeatured);
+            Console.WriteLine($"[Debug:image] handle={handle}");
+            Console.WriteLine($"  photo_urls kind={dbgPhotoUrls.ValueKind} raw={dbgPhotoUrls}");
+            Console.WriteLine($"  featured_image kind={dbgFeatured.ValueKind} raw={dbgFeatured}");
+            Console.WriteLine($"  → imageUrl={imageUrl ?? "null"}");
             Console.WriteLine($"[Debug:ageStage] title={title} tags=[{string.Join(",", tags)}]");
             Interlocked.Increment(ref _debugCount);
         }
@@ -252,6 +255,22 @@ public class LovecatScanner
         if (!string.IsNullOrWhiteSpace(embeddedNutrition) && !sections.ContainsKey("成分"))
             sections["成分"] = embeddedNutrition;
 
+        var proteinPct  = ParseNutrientPct(nutritionText, "蛋白質");
+        var fatPct      = ParseNutrientPct(nutritionText, "脂肪");
+        var fiberPct    = ParseNutrientPct(nutritionText, "粗纖維");
+        var moisturePct = ParseNutrientPct(nutritionText, "水分");
+        var ashPct      = ParseNutrientPct(nutritionText, "灰分");
+
+        // NFE carbs = 100 - protein - fat - fiber - moisture - ash (all must be present)
+        double? carbsPct = null;
+        if (proteinPct.HasValue && fatPct.HasValue && fiberPct.HasValue &&
+            moisturePct.HasValue && ashPct.HasValue)
+        {
+            var c = 100 - proteinPct.Value - fatPct.Value - fiberPct.Value
+                       - moisturePct.Value - ashPct.Value;
+            carbsPct = Math.Round(Math.Max(c, 0), 2);
+        }
+
         return new Product
         {
             Url             = $"{Origin}/products/{encodedHandle}",
@@ -267,9 +286,12 @@ public class LovecatScanner
             Ingredients     = ParseIngredients(ingredientsText),
             Sections        = sections,
             CaloriesText    = ParseCaloriesText(sections),
-            ProteinPct      = ParseNutrientPct(nutritionText, "蛋白質"),
-            FatPct          = ParseNutrientPct(nutritionText, "脂肪"),
-            FiberPct        = ParseNutrientPct(nutritionText, "粗纖維"),
+            ProteinPct      = proteinPct,
+            FatPct          = fatPct,
+            FiberPct        = fiberPct,
+            MoisturePct     = moisturePct,
+            AshPct          = ashPct,
+            CarbsPct        = carbsPct,
         };
     }
 
@@ -422,4 +444,7 @@ public class Product
     public double? ProteinPct   { get; set; }
     public double? FatPct       { get; set; }
     public double? FiberPct     { get; set; }
+    public double? MoisturePct  { get; set; }
+    public double? AshPct       { get; set; }
+    public double? CarbsPct     { get; set; }
 }
