@@ -91,12 +91,19 @@ public class ProductRepository
         using var conn = new NpgsqlConnection(_connectionString);
         conn.Open();
 
+        var productCount = Count(conn, "SELECT COUNT(*) FROM Products");
+        Console.WriteLine($"[GetFilters] Products={productCount}");
+
         var all = Query<(string Category, string Value, string Label, int Count)>(conn,
             "SELECT Category, Value, Label, Count FROM FilterOptions ORDER BY Count DESC;",
             r => (r.GetString(0), r.GetString(1), r.GetString(2), r.GetInt32(3)));
 
+        Console.WriteLine($"[GetFilters] FilterOptions rows={all.Count}");
+
         if (all.Count == 0)
             all = BuildFiltersFromProducts(conn);
+
+        Console.WriteLine($"[GetFilters] returning {all.Count} filter rows");
 
         FilterOption Map((string Category, string Value, string Label, int Count) row)
             => new(row.Value, row.Label, row.Count);
@@ -113,54 +120,87 @@ public class ProductRepository
 
     private List<(string Category, string Value, string Label, int Count)> BuildFiltersFromProducts(NpgsqlConnection conn)
     {
+        Console.WriteLine("[BuildFilters] building from Products table");
         var rows = new List<(string, string, string, int)>();
 
-        var brands = Query<(string, string, string, int)>(conn,
-            "SELECT Brand, Brand, COUNT(*)::int FROM Products WHERE Brand != '' GROUP BY Brand ORDER BY COUNT(*) DESC;",
-            r => ("brand", r.GetString(0), r.GetString(1), r.GetInt32(2)));
-        rows.AddRange(brands);
-
-        foreach (var meat in CommonMeats)
+        try
         {
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT COUNT(*)::int FROM Products WHERE IngredientsText ILIKE @kw;";
-            cmd.Parameters.AddWithValue("kw", $"%{meat}%");
-            var count = (int)(cmd.ExecuteScalar() ?? 0);
-            if (count > 0) rows.Add(("ingredient", meat, meat, count));
+            var brands = Query<(string, string, string, int)>(conn,
+                "SELECT Brand, Brand, COUNT(*)::int FROM Products WHERE Brand != '' GROUP BY Brand ORDER BY COUNT(*) DESC;",
+                r => ("brand", r.GetString(0), r.GetString(1), r.GetInt32(2)));
+            rows.AddRange(brands);
+            Console.WriteLine($"[BuildFilters] brands={brands.Count}");
         }
+        catch (Exception ex) { Console.WriteLine($"[BuildFilters] brand query failed: {ex.Message}"); }
 
-        foreach (var (value, label) in new[] { ("puppy", "幼齡"), ("senior", "高齡") })
+        try
         {
-            var c = Count(conn, $"SELECT COUNT(*) FROM Products WHERE AgeStage='{value}'");
-            if (c > 0) rows.Add(("ageStage", value, label, c));
+            foreach (var meat in CommonMeats)
+            {
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "SELECT COUNT(*)::int FROM Products WHERE IngredientsText ILIKE @kw;";
+                cmd.Parameters.AddWithValue("kw", $"%{meat}%");
+                var count = (int)(cmd.ExecuteScalar() ?? 0);
+                if (count > 0) rows.Add(("ingredient", meat, meat, count));
+            }
+            Console.WriteLine($"[BuildFilters] ingredients added");
         }
+        catch (Exception ex) { Console.WriteLine($"[BuildFilters] ingredient query failed: {ex.Message}"); }
 
-        foreach (var (value, label) in new[] { ("cat", "貓"), ("dog", "狗") })
+        try
         {
-            var c = Count(conn, $"SELECT COUNT(*) FROM Products WHERE PetType='{value}'");
-            if (c > 0) rows.Add(("petType", value, label, c));
+            foreach (var (value, label) in new[] { ("puppy", "幼齡"), ("senior", "高齡") })
+            {
+                var c = Count(conn, $"SELECT COUNT(*) FROM Products WHERE AgeStage='{value}'");
+                if (c > 0) rows.Add(("ageStage", value, label, c));
+            }
         }
+        catch (Exception ex) { Console.WriteLine($"[BuildFilters] ageStage query failed: {ex.Message}"); }
 
-        foreach (var (value, label) in new[] { ("wet", "濕食"), ("dry", "乾糧") })
+        try
         {
-            var c = Count(conn, $"SELECT COUNT(*) FROM Products WHERE Form='{value}'");
-            if (c > 0) rows.Add(("form", value, label, c));
+            foreach (var (value, label) in new[] { ("cat", "貓"), ("dog", "狗") })
+            {
+                var c = Count(conn, $"SELECT COUNT(*) FROM Products WHERE PetType='{value}'");
+                if (c > 0) rows.Add(("petType", value, label, c));
+            }
+            Console.WriteLine($"[BuildFilters] petTypes added");
         }
+        catch (Exception ex) { Console.WriteLine($"[BuildFilters] petType query failed: {ex.Message}"); }
 
-        var presCount = Count(conn, "SELECT COUNT(*) FROM Products WHERE IsPrescription=TRUE");
-        if (presCount > 0) rows.Add(("isPrescription", "true", "處方飼料", presCount));
-
-        // Persist so next call is fast
-        Exec(conn, "TRUNCATE FilterOptions;");
-        foreach (var (cat, val, lbl, cnt) in rows)
+        try
         {
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = "INSERT INTO FilterOptions (Category, Value, Label, Count) VALUES (@c, @v, @l, @n);";
-            cmd.Parameters.AddWithValue("c", cat);
-            cmd.Parameters.AddWithValue("v", val);
-            cmd.Parameters.AddWithValue("l", lbl);
-            cmd.Parameters.AddWithValue("n", cnt);
-            cmd.ExecuteNonQuery();
+            foreach (var (value, label) in new[] { ("wet", "濕食"), ("dry", "乾糧") })
+            {
+                var c = Count(conn, $"SELECT COUNT(*) FROM Products WHERE Form='{value}'");
+                if (c > 0) rows.Add(("form", value, label, c));
+            }
+        }
+        catch (Exception ex) { Console.WriteLine($"[BuildFilters] form query failed: {ex.Message}"); }
+
+        try
+        {
+            var presCount = Count(conn, "SELECT COUNT(*) FROM Products WHERE IsPrescription=TRUE");
+            if (presCount > 0) rows.Add(("isPrescription", "true", "處方飼料", presCount));
+        }
+        catch (Exception ex) { Console.WriteLine($"[BuildFilters] isPrescription query failed: {ex.Message}"); }
+
+        Console.WriteLine($"[BuildFilters] total rows={rows.Count}");
+
+        // Only persist if we got data — don't wipe FilterOptions with an empty result
+        if (rows.Count > 0)
+        {
+            Exec(conn, "TRUNCATE FilterOptions;");
+            foreach (var (cat, val, lbl, cnt) in rows)
+            {
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "INSERT INTO FilterOptions (Category, Value, Label, Count) VALUES (@c, @v, @l, @n);";
+                cmd.Parameters.AddWithValue("c", cat);
+                cmd.Parameters.AddWithValue("v", val);
+                cmd.Parameters.AddWithValue("l", lbl);
+                cmd.Parameters.AddWithValue("n", cnt);
+                cmd.ExecuteNonQuery();
+            }
         }
 
         return rows;
