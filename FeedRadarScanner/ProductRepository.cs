@@ -138,8 +138,10 @@ public class ProductRepository
         using var conn = new NpgsqlConnection(_connectionString);
         conn.Open();
         Exec(conn, "TRUNCATE Products RESTART IDENTITY;");
-        Exec(conn, "TRUNCATE FilterOptions;");
-        Console.WriteLine("[Cleanup] Products and FilterOptions truncated.");
+        // FilterOptions is intentionally NOT truncated here — keep stale filter data
+        // available to the web server during the re-scan window. RebuildFilters() at
+        // the end of the scan will overwrite it with fresh data.
+        Console.WriteLine("[Cleanup] Products truncated (FilterOptions preserved until RebuildFilters).");
     }
 
     private static readonly string[] CommonMeats =
