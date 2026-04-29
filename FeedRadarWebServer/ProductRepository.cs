@@ -149,7 +149,7 @@ public class ProductRepository
 
         try
         {
-            foreach (var (value, label) in new[] { ("puppy", "幼齡"), ("senior", "高齡") })
+            foreach (var (value, label) in new[] { ("puppy", "幼齡"), ("adult", "成年"), ("senior", "高齡") })
             {
                 var c = Count(conn, $"SELECT COUNT(*) FROM Products WHERE AgeStage='{value}'");
                 if (c > 0) rows.Add(("ageStage", value, label, c));

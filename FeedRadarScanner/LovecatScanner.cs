@@ -93,7 +93,7 @@ public class LovecatScanner
                 s.Contains("高齡") || s.Contains("熟齡") || s.Contains("老年") || s.Contains("銀髮"))
                 return "senior";
         }
-        return "";
+        return "adult";
     }
 
     // Longest prefixes first so "凍乾" isn't masked by a hypothetical single-char match

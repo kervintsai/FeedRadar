@@ -173,7 +173,7 @@ public class ProductRepository
         }
 
         // AgeStages
-        foreach (var (value, label) in new[] { ("puppy", "幼齡"), ("senior", "高齡") })
+        foreach (var (value, label) in new[] { ("puppy", "幼齡"), ("adult", "成年"), ("senior", "高齡") })
         {
             using var cmd = conn.CreateCommand();
             cmd.CommandText = "SELECT COUNT(*)::int FROM Products WHERE AgeStage = @v;";
