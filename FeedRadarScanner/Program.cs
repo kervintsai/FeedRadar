@@ -29,7 +29,7 @@ string[] quickCollections =
     "https://www.lovecat.com.tw/collections/貓零食點心_全部商品",
 ];
 
-var quickScan = Environment.GetEnvironmentVariable("QUICK_SCAN") == "true";
+var quickScan = Environment.GetEnvironmentVariable("QUICK_SCAN") == "true" || true;
 var collections = quickScan ? quickCollections : allCollections;
 Console.WriteLine(quickScan ? "[Mode] QUICK_SCAN — 2 collections only" : "[Mode] FULL_SCAN — all collections");
 
