@@ -14,6 +14,8 @@ public class LovecatScanner
         Timeout = TimeSpan.FromSeconds(30)
     };
 
+    private int _debugCount = 0;
+
     private const string Origin = "https://www.lovecat.com.tw";
 
     // Section header patterns in order of expected appearance.
@@ -209,6 +211,16 @@ public class LovecatScanner
             var first = imagesEl.EnumerateArray().FirstOrDefault();
             if (first.ValueKind == JsonValueKind.Object && first.TryGetProperty("src", out var srcEl))
                 imageUrl = srcEl.GetString();
+        }
+
+        // Debug: print root keys + image result for first 3 products
+        if (_debugCount < 3)
+        {
+            var keys = root.EnumerateObject().Select(p => p.Name).ToList();
+            Console.WriteLine($"[Debug:keys] {handle} → [{string.Join(", ", keys)}]");
+            Console.WriteLine($"[Debug:image] imageUrl={imageUrl ?? "null"}");
+            Console.WriteLine($"[Debug:ageStage] title={title} tags=[{string.Join(",", tags)}]");
+            Interlocked.Increment(ref _debugCount);
         }
 
         var allSections = ExtractAllSections(root);
