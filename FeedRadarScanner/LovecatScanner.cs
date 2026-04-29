@@ -204,12 +204,19 @@ public class LovecatScanner
             foreach (var t in tagsEl.EnumerateArray())
                 if (t.ValueKind == JsonValueKind.String) tags.Add(t.GetString() ?? "");
 
-        // Extract first product image URL
+        // Extract first product image URL (lovecat uses photo_urls or featured_image, not images)
         string? imageUrl = null;
-        if (root.TryGetProperty("images", out var imagesEl) && imagesEl.ValueKind == JsonValueKind.Array)
+        if (root.TryGetProperty("photo_urls", out var photoUrlsEl) && photoUrlsEl.ValueKind == JsonValueKind.Array)
         {
-            var first = imagesEl.EnumerateArray().FirstOrDefault();
-            if (first.ValueKind == JsonValueKind.Object && first.TryGetProperty("src", out var srcEl))
+            var first = photoUrlsEl.EnumerateArray().FirstOrDefault();
+            if (first.ValueKind == JsonValueKind.String)
+                imageUrl = first.GetString();
+        }
+        if (imageUrl == null && root.TryGetProperty("featured_image", out var featuredEl))
+        {
+            if (featuredEl.ValueKind == JsonValueKind.String)
+                imageUrl = featuredEl.GetString();
+            else if (featuredEl.ValueKind == JsonValueKind.Object && featuredEl.TryGetProperty("src", out var srcEl))
                 imageUrl = srcEl.GetString();
         }
 
