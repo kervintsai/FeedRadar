@@ -46,6 +46,22 @@ public class LovecatScanner
     private static readonly Regex PctRegex   = new(@"[（(](\d+\.?\d*)%[）)]", RegexOptions.Compiled);
     private static readonly Regex ParenRegex = new(@"[\(（][^)）]*[\)）]",     RegexOptions.Compiled);
 
+    private static readonly string[] NonFoodProductTypes =
+        ["用品", "玩具", "貓砂", "清潔", "美容", "梳子", "衣服", "提包", "外出包"];
+
+    private static readonly string[] NonFoodTitleKeywords =
+        ["貓薄荷", "貓草", "薄荷草", "木天蓼", "逗貓棒", "貓砂"];
+
+    private static bool IsNonFood(string title, string? productType)
+    {
+        if (!string.IsNullOrEmpty(productType) &&
+            NonFoodProductTypes.Any(k => productType.Contains(k, StringComparison.OrdinalIgnoreCase)))
+            return true;
+        if (NonFoodTitleKeywords.Any(k => title.Contains(k, StringComparison.OrdinalIgnoreCase)))
+            return true;
+        return false;
+    }
+
     // ── Metadata extraction ───────────────────────────────────────────────────
 
     private static string ExtractBrand(string title)
@@ -195,11 +211,17 @@ public class LovecatScanner
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
 
-        var title = root.GetProperty("title").GetString() ?? "";
+        var title       = root.GetProperty("title").GetString() ?? "";
+        var productType = root.TryGetProperty("product_type", out var ptEl) ? ptEl.GetString() : null;
+
+        if (IsNonFood(title, productType))
+        {
+            Console.WriteLine($"[Skip] non-food: {title}");
+            return null;
+        }
 
         // Shopify top-level metadata
-        var vendor      = root.TryGetProperty("vendor",       out var vEl)  ? vEl.GetString()  : null;
-        var productType = root.TryGetProperty("product_type", out var ptEl) ? ptEl.GetString() : null;
+        var vendor = root.TryGetProperty("vendor", out var vEl) ? vEl.GetString() : null;
         var tags = new List<string>();
         if (root.TryGetProperty("tags", out var tagsEl) && tagsEl.ValueKind == JsonValueKind.Array)
             foreach (var t in tagsEl.EnumerateArray())
