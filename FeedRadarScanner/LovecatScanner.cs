@@ -84,9 +84,22 @@ public class LovecatScanner
     private static bool DetectIsPrescription(string title, IEnumerable<string> tags)
         => new[] { title }.Concat(tags).Any(s => s.Contains("處方"));
 
-    private static string DetectForm(string title, string productType, IEnumerable<string> tags)
+    private static string DetectForm(string title, string productType, IEnumerable<string> tags, bool isTreatCollection = false)
     {
         var sources = new[] { title, productType }.Concat(tags);
+
+        // Treat collections: check treat keywords first so wet-format treats (e.g. "肉泥餐包") aren't
+        // misclassified as wet food; fall through to wet/dry only if no treat keyword matches.
+        if (isTreatCollection)
+        {
+            foreach (var s in sources)
+                if (s.Contains("肉乾") || s.Contains("凍乾") || s.Contains("冷凍乾燥") ||
+                    s.Contains("零食") || s.Contains("點心") || s.Contains("補充條") ||
+                    s.Contains("餅乾") || s.Contains("潔牙") || s.Contains("磨牙") ||
+                    s.Contains("保健")) return "treat";
+            return "treat"; // default for treat collections
+        }
+
         foreach (var s in sources)
         {
             if (s.Contains("乾糧") || s.Contains("乾食")) return "dry";
@@ -131,6 +144,8 @@ public class LovecatScanner
         var handles = await GetAllProductHandlesAsync(collectionUrl, ct);
         Console.WriteLine($"[Debug] total handles = {handles.Count}");
 
+        var isTreatCollection = collectionUrl.Contains("零食") || collectionUrl.Contains("點心");
+
         var options = new ParallelOptions { MaxDegreeOfParallelism = 8, CancellationToken = ct };
         var results = new List<Product>();
         var gate = new object();
@@ -139,7 +154,7 @@ public class LovecatScanner
         {
             try
             {
-                var p = await FetchProductAsync(handle, token);
+                var p = await FetchProductAsync(handle, isTreatCollection, token);
                 if (p != null)
                 {
                     lock (gate) results.Add(p);
@@ -202,7 +217,7 @@ public class LovecatScanner
         return $"{uri.Scheme}://{uri.Host}{port}{encodedPath}?page={page}&per={per}&sort_by=&product_filters=%5B%5D&tags=";
     }
 
-    private async Task<Product?> FetchProductAsync(string handle, CancellationToken ct)
+    private async Task<Product?> FetchProductAsync(string handle, bool isTreatCollection, CancellationToken ct)
     {
         var encodedHandle = Uri.EscapeDataString(handle);
         var res = await _http.GetAsync($"{Origin}/products/{encodedHandle}.json", ct);
@@ -303,7 +318,7 @@ public class LovecatScanner
             PetType         = DetectPetType(title, productType ?? "", tags),
             AgeStage        = DetectAgeStage(title, tags),
             IsPrescription  = DetectIsPrescription(title, tags),
-            Form            = DetectForm(title, productType ?? "", tags),
+            Form            = DetectForm(title, productType ?? "", tags, isTreatCollection),
             ImageUrl        = imageUrl,
             IngredientsText = ingredientsText,
             NutritionText   = nutritionText,
