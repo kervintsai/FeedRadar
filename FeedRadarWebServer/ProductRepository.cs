@@ -282,7 +282,7 @@ public class ProductRepository
         var total = Convert.ToInt32(countCmd.ExecuteScalar() ?? 0);
 
         cmd.CommandText = $"""
-            SELECT Id, Title, Brand, PetType, AgeStage, IsPrescription, Form,
+            SELECT Id, Url, Title, Brand, PetType, AgeStage, IsPrescription, Form,
                    ImageUrl, IngredientsText, NutritionText,
                    ProteinPct, FatPct, FiberPct, MoisturePct, AshPct, CarbsPct, CaloriesText
             FROM Products {where}
@@ -294,22 +294,23 @@ public class ProductRepository
 
         var products = Query<ProductDto>(cmd, r => new ProductDto(
             Id:              r.GetInt32(0),
-            Title:           r.GetString(1),
-            Brand:           r.GetString(2),
-            PetType:         r.GetString(3),
-            AgeStage:        r.GetString(4),
-            IsPrescription:  r.GetBoolean(5),
-            Form:            r.GetString(6),
-            ImageUrl:        r.IsDBNull(7)  ? null : r.GetString(7),
-            IngredientsText: r.GetString(8),
-            NutritionText:   r.GetString(9),
-            ProteinPct:      r.IsDBNull(10) ? null : r.GetDouble(10),
-            FatPct:          r.IsDBNull(11) ? null : r.GetDouble(11),
-            FiberPct:        r.IsDBNull(12) ? null : r.GetDouble(12),
-            MoisturePct:     r.IsDBNull(13) ? null : r.GetDouble(13),
-            AshPct:          r.IsDBNull(14) ? null : r.GetDouble(14),
-            CarbsPct:        r.IsDBNull(15) ? null : r.GetDouble(15),
-            CaloriesText:    r.IsDBNull(16) ? null : r.GetString(16)
+            Url:             r.GetString(1),
+            Title:           r.GetString(2),
+            Brand:           r.GetString(3),
+            PetType:         r.GetString(4),
+            AgeStage:        r.GetString(5),
+            IsPrescription:  r.GetBoolean(6),
+            Form:            r.GetString(7),
+            ImageUrl:        r.IsDBNull(8)  ? null : r.GetString(8),
+            IngredientsText: r.GetString(9),
+            NutritionText:   r.GetString(10),
+            ProteinPct:      r.IsDBNull(11) ? null : r.GetDouble(11),
+            FatPct:          r.IsDBNull(12) ? null : r.GetDouble(12),
+            FiberPct:        r.IsDBNull(13) ? null : r.GetDouble(13),
+            MoisturePct:     r.IsDBNull(14) ? null : r.GetDouble(14),
+            AshPct:          r.IsDBNull(15) ? null : r.GetDouble(15),
+            CarbsPct:        r.IsDBNull(16) ? null : r.GetDouble(16),
+            CaloriesText:    r.IsDBNull(17) ? null : r.GetString(17)
         ));
 
         return (products, total);

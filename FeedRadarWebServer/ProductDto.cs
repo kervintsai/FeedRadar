@@ -18,6 +18,7 @@ public record FiltersDto(
 // ── Product ───────────────────────────────────────────────────────────────────
 public record ProductDto(
     int     Id,
+    string  Url,
     string  Title,
     string  Brand,
     string  PetType,
