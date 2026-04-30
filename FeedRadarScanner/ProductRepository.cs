@@ -202,7 +202,7 @@ public class ProductRepository
         }
 
         // Forms
-        foreach (var (value, label) in new[] { ("wet", "濕食"), ("dry", "乾糧") })
+        foreach (var (value, label) in new[] { ("wet", "濕食"), ("dry", "乾糧"), ("treat", "零食") })
         {
             using var cmd = conn.CreateCommand();
             cmd.CommandText = "SELECT COUNT(*)::int FROM Products WHERE Form = @v;";

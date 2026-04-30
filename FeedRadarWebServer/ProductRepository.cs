@@ -173,7 +173,7 @@ public class ProductRepository
 
         try
         {
-            foreach (var (value, label) in new[] { ("wet", "濕食"), ("dry", "乾糧") })
+            foreach (var (value, label) in new[] { ("wet", "濕食"), ("dry", "乾糧"), ("treat", "零食") })
             {
                 var c = Count(conn, $"SELECT COUNT(*) FROM Products WHERE Form='{value}'");
                 if (c > 0) rows.Add(("form", value, label, c));
