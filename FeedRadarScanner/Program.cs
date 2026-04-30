@@ -3,11 +3,13 @@ var connectionString =
     ?? (args.Length > 0 ? args[0] : "Host=localhost;Database=feedradar;Username=postgres;Password=postgres");
 
 Console.WriteLine("Connecting to database...");
-var repo = new ProductRepository(connectionString);
+var repo    = new ProductRepository(connectionString);
+var lovecat = new LovecatScanner();
+var petpark = new PetparkScanner();
 
-var scannerCollections = new (IFeedScanner Scanner, string[] Collections)[]
+var scannerCollections = new (string Site, Func<string, Task<List<Product>>> Scan, string[] Collections)[]
 {
-    (new LovecatScanner(), [
+    (lovecat.SiteName, url => lovecat.ScanAsync(url), [
         "https://www.lovecat.com.tw/collections/犬乾糧主食_全部商品-20210721151014",
         "https://www.lovecat.com.tw/collections/犬罐頭-餐包_全部商品",
         "https://www.lovecat.com.tw/collections/犬點心零食_全部商品-20210721142445",
@@ -17,7 +19,7 @@ var scannerCollections = new (IFeedScanner Scanner, string[] Collections)[]
         "https://www.lovecat.com.tw/collections/處方乾糧罐頭_全部商品",
         "https://www.lovecat.com.tw/collections/冷凍生鮮食專區_全部商品",
     ]),
-    (new PetparkScanner(), [
+    (petpark.SiteName, url => petpark.ScanAsync(url), [
         // Dry food
         "https://shop.petpark.com.tw/dryfood/hot-cat-dryfood",
         "https://shop.petpark.com.tw/dryfood/hot-dog-dryfood",
@@ -46,7 +48,7 @@ Console.WriteLine(quickScan ? "[Mode] QUICK_SCAN" : "[Mode] FULL_SCAN");
 repo.TruncateAll();
 
 int total = 0;
-foreach (var (scanner, allCollections) in scannerCollections)
+foreach (var (site, scan, allCollections) in scannerCollections)
 {
     var collections = quickScan ? allCollections.Take(1).ToArray() : allCollections;
     foreach (var url in collections)
@@ -55,10 +57,10 @@ foreach (var (scanner, allCollections) in scannerCollections)
         Console.WriteLine($"[Collection] {url}");
         try
         {
-            var products = await scanner.ScanAsync(url);
+            var products = await scan(url);
             Console.WriteLine($"[Collection] Fetched {products.Count} products, saving...");
             foreach (var p in products)
-                repo.Upsert(p, scanner.SiteName);
+                repo.Upsert(p, site);
             total += products.Count;
             Console.WriteLine($"[Collection] Saved OK. Running total: {total}");
         }

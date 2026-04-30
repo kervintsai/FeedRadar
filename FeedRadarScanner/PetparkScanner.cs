@@ -2,7 +2,7 @@ using HtmlAgilityPack;
 using System.Globalization;
 using System.Text.RegularExpressions;
 
-public class PetparkScanner : IFeedScanner
+public class PetparkScanner
 {
     private readonly HttpClient _http;
     public string SiteName => "petpark";

@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-public class CyberbizScanner : IFeedScanner
+public class CyberbizScanner
 {
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(30) };
 
