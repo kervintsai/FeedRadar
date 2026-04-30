@@ -190,23 +190,16 @@ public class PetparkScanner
 
     private static decimal? ParsePrice(HtmlDocument doc)
     {
-        // Try span.price or any node containing "特價 $NNN"
-        var candidates = doc.DocumentNode.SelectNodes(
-            "//*[contains(@class,'price')] | //*[contains(text(),'特價')]");
-        if (candidates != null)
-            foreach (var node in candidates)
-            {
-                var m = Regex.Match(node.InnerText, @"特價[^\d]*\$?\s*([\d,]+)");
-                if (m.Success && decimal.TryParse(m.Groups[1].Value.Replace(",", ""), out var p))
-                    return p;
-            }
-
-        // Fallback: full text search
-        var fullText = doc.DocumentNode.InnerText;
-        var m2 = Regex.Match(fullText, @"特價[^\d$]*\$?\s*([\d,]+)");
-        if (m2.Success && decimal.TryParse(m2.Groups[1].Value.Replace(",", ""), out var p2))
-            return p2;
-
+        // Prefer special-price; fall back to any price-wrapper with data-price-amount
+        var node = doc.DocumentNode.SelectSingleNode(
+                       "//span[contains(@class,'special-price')]//span[@data-price-amount]")
+                ?? doc.DocumentNode.SelectSingleNode("//span[@data-price-amount]");
+        if (node != null)
+        {
+            var raw = node.GetAttributeValue("data-price-amount", "");
+            if (decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var p))
+                return p;
+        }
         return null;
     }
 
