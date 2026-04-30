@@ -244,6 +244,10 @@ public class LovecatScanner
             foreach (var t in tagsEl.EnumerateArray())
                 if (t.ValueKind == JsonValueKind.String) tags.Add(t.GetString() ?? "");
 
+        decimal? price = null;
+        if (root.TryGetProperty("price", out var priceEl) && priceEl.ValueKind == JsonValueKind.Number)
+            price = priceEl.GetDecimal();
+
         // lovecat: featured_image is an object keyed by resolution (large/medium/original/…)
         string? imageUrl = null;
         if (root.TryGetProperty("featured_image", out var featuredEl) &&
@@ -332,6 +336,7 @@ public class LovecatScanner
             MoisturePct     = moisturePct,
             AshPct          = ashPct,
             CarbsPct        = carbsPct,
+            Price           = price,
         };
     }
 
@@ -516,5 +521,6 @@ public class Product
     public double? FiberPct     { get; set; }
     public double? MoisturePct  { get; set; }
     public double? AshPct       { get; set; }
-    public double? CarbsPct     { get; set; }
+    public double?   CarbsPct  { get; set; }
+    public decimal?  Price     { get; set; }
 }

@@ -57,13 +57,11 @@ public class ProductRepository
             );
             """);
 
+        Exec(conn, "ALTER TABLE Products DROP CONSTRAINT IF EXISTS products_url_key;");
+
         foreach (var (col, def) in new[]
         {
-            ("Brand",          "TEXT NOT NULL DEFAULT ''"),
-            ("PetType",        "TEXT NOT NULL DEFAULT ''"),
             ("AgeStage",       "TEXT NOT NULL DEFAULT ''"),
-            ("IsPrescription", "BOOLEAN NOT NULL DEFAULT FALSE"),
-            ("Form",           "TEXT NOT NULL DEFAULT ''"),
             ("ImageUrl",       "TEXT"),
             ("NutritionText",  "TEXT NOT NULL DEFAULT ''"),
             ("CaloriesText",   "TEXT"),
@@ -73,8 +71,23 @@ public class ProductRepository
             ("MoisturePct",    "DOUBLE PRECISION"),
             ("AshPct",         "DOUBLE PRECISION"),
             ("CarbsPct",       "DOUBLE PRECISION"),
+            ("MinPrice",       "NUMERIC"),
+            ("MaxPrice",       "NUMERIC"),
         })
             Exec(conn, $"ALTER TABLE Products ADD COLUMN IF NOT EXISTS {col} {def};");
+
+        Exec(conn, """
+            CREATE TABLE IF NOT EXISTS ProductPrices (
+                Id        SERIAL PRIMARY KEY,
+                ProductId INT     NOT NULL REFERENCES Products(Id),
+                Site      TEXT    NOT NULL,
+                Price     NUMERIC NOT NULL,
+                Currency  TEXT    NOT NULL DEFAULT 'TWD',
+                Url       TEXT    NOT NULL,
+                ScannedAt TEXT    NOT NULL,
+                UNIQUE (ProductId, Site)
+            );
+            """);
 
         Exec(conn, """
             CREATE TABLE IF NOT EXISTS FilterOptions (
@@ -284,7 +297,8 @@ public class ProductRepository
         cmd.CommandText = $"""
             SELECT Id, Url, Title, Brand, PetType, AgeStage, IsPrescription, Form,
                    ImageUrl, IngredientsText, NutritionText,
-                   ProteinPct, FatPct, FiberPct, MoisturePct, AshPct, CarbsPct, CaloriesText
+                   ProteinPct, FatPct, FiberPct, MoisturePct, AshPct, CarbsPct, CaloriesText,
+                   MinPrice, MaxPrice
             FROM Products {where}
             ORDER BY Title
             LIMIT @lim OFFSET @off;
@@ -310,8 +324,30 @@ public class ProductRepository
             MoisturePct:     r.IsDBNull(14) ? null : r.GetDouble(14),
             AshPct:          r.IsDBNull(15) ? null : r.GetDouble(15),
             CarbsPct:        r.IsDBNull(16) ? null : r.GetDouble(16),
-            CaloriesText:    r.IsDBNull(17) ? null : r.GetString(17)
+            CaloriesText:    r.IsDBNull(17) ? null : r.GetString(17),
+            MinPrice:        r.IsDBNull(18) ? null : r.GetDecimal(18),
+            MaxPrice:        r.IsDBNull(19) ? null : r.GetDecimal(19),
+            Prices:          new List<PriceDto>()
         ));
+
+        // Fetch prices for this page's products
+        if (products.Count > 0)
+        {
+            var ids = string.Join(",", products.Select(p => p.Id));
+            var priceMap = new Dictionary<int, List<PriceDto>>();
+            using var priceCmd = new NpgsqlConnection(_connectionString);
+            priceCmd.Open();
+            using var pc = priceCmd.CreateCommand();
+            pc.CommandText = $"SELECT ProductId, Site, Price, Currency, Url FROM ProductPrices WHERE ProductId IN ({ids}) ORDER BY Price;";
+            using var pr = pc.ExecuteReader();
+            while (pr.Read())
+            {
+                var pid = pr.GetInt32(0);
+                if (!priceMap.ContainsKey(pid)) priceMap[pid] = new List<PriceDto>();
+                priceMap[pid].Add(new PriceDto(pr.GetString(1), pr.GetDecimal(2), pr.GetString(3), pr.GetString(4)));
+            }
+            products = products.Select(p => p with { Prices = priceMap.GetValueOrDefault(p.Id, new()) }).ToList();
+        }
 
         return (products, total);
     }

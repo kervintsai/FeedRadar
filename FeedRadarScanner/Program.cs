@@ -43,7 +43,7 @@ foreach (var url in collections)
         var products = await scanner.ScanAsync(url);
         Console.WriteLine($"[Collection] Fetched {products.Count} products, saving...");
         foreach (var p in products)
-            repo.Upsert(p);
+            repo.Upsert(p, "lovecat");
         total += products.Count;
         Console.WriteLine($"[Collection] Saved OK. Running total: {total}");
     }

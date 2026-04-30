@@ -15,6 +15,9 @@ public record FiltersDto(
     List<FilterOption> IsPrescription
 );
 
+// ── Price ─────────────────────────────────────────────────────────────────────
+public record PriceDto(string Site, decimal Price, string Currency, string Url);
+
 // ── Product ───────────────────────────────────────────────────────────────────
 public record ProductDto(
     int     Id,
@@ -34,7 +37,10 @@ public record ProductDto(
     double? MoisturePct,
     double? AshPct,
     double? CarbsPct,
-    string? CaloriesText
+    string? CaloriesText,
+    decimal? MinPrice,
+    decimal? MaxPrice,
+    List<PriceDto> Prices
 );
 
 public record PaginationDto(int Page, int Limit, int Total, int TotalPages);
