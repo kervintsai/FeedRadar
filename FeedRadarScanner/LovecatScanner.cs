@@ -75,7 +75,8 @@ public class LovecatScanner
         {
             if (s.Contains("乾糧") || s.Contains("乾食")) return "dry";
             if (s.Contains("濕食") || s.Contains("主食罐") || s.Contains("罐頭") || s.Contains("餐包")) return "wet";
-            if (s.Contains("肉乾") || s.Contains("零食") || s.Contains("點心") ||
+            if (s.Contains("肉乾") || s.Contains("凍乾") || s.Contains("冷凍乾燥") ||
+                s.Contains("零食") || s.Contains("點心") ||
                 s.Contains("餅乾") || s.Contains("潔牙") || s.Contains("磨牙")) return "treat";
         }
         return "";
@@ -249,11 +250,17 @@ public class LovecatScanner
         // where guaranteed-analysis values are embedded in the ingredients block.
         var nutrientSource = !string.IsNullOrWhiteSpace(nutritionText) ? nutritionText : ingredientsText;
 
-        var proteinPct  = ParseNutrientPct(nutrientSource, "蛋白質", "粗蛋白");
-        var fatPct      = ParseNutrientPct(nutrientSource, "脂肪");
-        var fiberPct    = ParseNutrientPct(nutrientSource, "粗纖維");
-        var moisturePct = ParseNutrientPct(nutrientSource, "水分");
-        var ashPct      = ParseNutrientPct(nutrientSource, "灰分", "灰份");
+        var servingG    = ParseServingGrams(nutrientSource);
+        var proteinPct  = ParseNutrientPct(nutrientSource, "蛋白質", "粗蛋白")
+                       ?? ParseNutrientGramsAsPct(nutrientSource, servingG, "蛋白質", "蛋白");
+        var fatPct      = ParseNutrientPct(nutrientSource, "脂肪")
+                       ?? ParseNutrientGramsAsPct(nutrientSource, servingG, "脂肪");
+        var fiberPct    = ParseNutrientPct(nutrientSource, "粗纖維")
+                       ?? ParseNutrientGramsAsPct(nutrientSource, servingG, "纖維");
+        var moisturePct = ParseNutrientPct(nutrientSource, "水分")
+                       ?? ParseNutrientGramsAsPct(nutrientSource, servingG, "水分");
+        var ashPct      = ParseNutrientPct(nutrientSource, "灰分", "灰份")
+                       ?? ParseNutrientGramsAsPct(nutrientSource, servingG, "灰分", "灰份");
 
         // NFE carbs = 100 - protein - fat - fiber - moisture - ash (all must be present)
         double? carbsPct = null;
@@ -418,6 +425,31 @@ public class LovecatScanner
             var match = Regex.Match(text[(idx + name.Length)..], @"(\d+\.?\d*)%");
             if (match.Success && double.TryParse(match.Groups[1].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out var val))
                 return val;
+        }
+        return null;
+    }
+
+    // Extracts serving size from patterns like "每30g含" or "每100公克"
+    private static double? ParseServingGrams(string text)
+    {
+        var m = Regex.Match(text, @"每\s*(\d+\.?\d*)\s*(?:g|G|公克|克)");
+        return m.Success && double.TryParse(m.Groups[1].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out var g) ? g : null;
+    }
+
+    // Converts nutrient gram values to percentage using serving size; returns null if result > 100
+    private static double? ParseNutrientGramsAsPct(string text, double? servingG, params string[] names)
+    {
+        if (string.IsNullOrEmpty(text) || !servingG.HasValue || servingG <= 0) return null;
+        foreach (var name in names)
+        {
+            var idx = text.IndexOf(name, StringComparison.Ordinal);
+            if (idx < 0) continue;
+            var match = Regex.Match(text[(idx + name.Length)..], @"(\d+\.?\d*)\s*g");
+            if (!match.Success) continue;
+            if (!double.TryParse(match.Groups[1].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out var grams)) continue;
+            var pct = Math.Round(grams / servingG.Value * 100, 2);
+            if (pct > 100) return null;
+            return pct;
         }
         return null;
     }
