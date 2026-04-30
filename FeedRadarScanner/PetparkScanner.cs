@@ -74,11 +74,8 @@ public class PetparkScanner
             if (page == 1)
                 totalPages = ParseTotalPages(doc);
 
-            // Product links: each product card has a link in h3 or h2
             var links = doc.DocumentNode.SelectNodes(
-                "//div[contains(@class,'product-item')]//h3/a[@href] | " +
-                "//div[contains(@class,'product-item')]//h2/a[@href] | " +
-                "//li[contains(@class,'product-item')]//h3/a[@href]");
+                "//a[contains(@class,'product-item-link') and @href]");
 
             if (links != null)
                 foreach (var link in links)
@@ -94,15 +91,14 @@ public class PetparkScanner
 
     private static int ParseTotalPages(HtmlDocument doc)
     {
-        // Look for "項目 1 - 50，共 948 個" pattern
-        var nodes = doc.DocumentNode.SelectNodes("//*[contains(text(),'共') and contains(text(),'個')]");
-        if (nodes != null)
-            foreach (var node in nodes)
-            {
-                var m = Regex.Match(node.InnerText, @"共\s*([\d,]+)\s*個");
-                if (m.Success && int.TryParse(m.Groups[1].Value.Replace(",", ""), out var total))
-                    return (int)Math.Ceiling(total / 50.0);
-            }
+        // "項目 1 - 50，共 579 個" lives in <p class="toolbar-amount">
+        var node = doc.DocumentNode.SelectSingleNode("//*[contains(@class,'toolbar-amount')]");
+        if (node != null)
+        {
+            var m = Regex.Match(node.InnerText, @"共\s*([\d,]+)\s*個");
+            if (m.Success && int.TryParse(m.Groups[1].Value.Replace(",", ""), out var total))
+                return (int)Math.Ceiling(total / 50.0);
+        }
         return 1;
     }
 
@@ -214,55 +210,47 @@ public class PetparkScanner
         return null;
     }
 
-    // Petpark uses <h4>成分：</h4><p>...</p> and <h4>營養分析：</h4><p>...</p>
+    // Petpark puts both ingredients and nutrition in one <p class="text-muted"> inside
+    // <div class="product-info-ec-spec">, separated by <br/>
     private static (string Ingredients, string Nutrition) ParseDescriptions(HtmlDocument doc)
     {
         var ingredients = "";
         var nutrition   = "";
 
-        var h4Nodes = doc.DocumentNode.SelectNodes("//h4");
-        if (h4Nodes == null) return (ingredients, nutrition);
+        var p = doc.DocumentNode.SelectSingleNode(
+            "//div[contains(@class,'product-info-ec-spec')]//p");
+        if (p == null) return (ingredients, nutrition);
 
-        foreach (var h4 in h4Nodes)
+        // Replace <br> with newline so we can split on lines
+        var brNodes = p.SelectNodes(".//br");
+        foreach (var br in brNodes != null ? brNodes.ToList() : new List<HtmlNode>())
+            br.ParentNode.ReplaceChild(HtmlNode.CreateNode("\n"), br);
+
+        foreach (var line in p.InnerText.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
-            var header = HtmlEntity.DeEntitize(h4.InnerText.Trim());
+            var text = HtmlEntity.DeEntitize(line.Trim());
+            if (string.IsNullOrEmpty(text)) continue;
 
-            // The content paragraph is the next sibling p, or inside the parent's next sibling
-            var p = h4.SelectSingleNode("following-sibling::p[1]")
-                 ?? h4.ParentNode?.SelectSingleNode("following-sibling::*/descendant-or-self::p[1]");
-            var content = HtmlEntity.DeEntitize(p?.InnerText.Trim() ?? "");
-            if (string.IsNullOrWhiteSpace(content)) continue;
-
-            if ((header.Contains("成分") || header.Contains("原料")) && string.IsNullOrEmpty(ingredients))
-                ingredients = content;
-            else if ((header.Contains("營養") || header.Contains("保證分析")) && string.IsNullOrEmpty(nutrition))
-                nutrition = content;
+            if ((text.StartsWith("成分") || text.StartsWith("原料")) && string.IsNullOrEmpty(ingredients))
+                ingredients = Regex.Replace(text, @"^[^:：]+[:：]\s*", "");
+            else if ((text.StartsWith("營養") || text.StartsWith("保證分析")) && string.IsNullOrEmpty(nutrition))
+                nutrition = Regex.Replace(text, @"^[^:：]+[:：]\s*", "");
         }
 
         return (ingredients, nutrition);
     }
 
-    // Try to find brand from breadcrumbs or page metadata; fall back to first word of title
     private static string ExtractBrand(HtmlDocument doc, string title)
     {
-        // Some Magento pages put brand in breadcrumbs or structured data
-        var breadcrumbs = doc.DocumentNode.SelectNodes(
-            "//*[contains(@class,'breadcrumb')]//a | //*[contains(@class,'breadcrumbs')]//a");
-        if (breadcrumbs != null && breadcrumbs.Count >= 2)
+        // Petpark puts brand in <div class="product-info-brand"><h4>...</h4></div>
+        var brandNode = doc.DocumentNode.SelectSingleNode(
+            "//div[contains(@class,'product-info-brand')]/h4");
+        if (brandNode != null)
         {
-            // Breadcrumb pattern: 首頁 > 飼料 > 品牌 > 商品
-            var brandNode = breadcrumbs.LastOrDefault(n =>
-            {
-                var href = n.GetAttributeValue("href", "");
-                return href.Contains("-brand") || href.Contains("/brand");
-            });
-            if (brandNode != null)
-                return HtmlEntity.DeEntitize(brandNode.InnerText.Trim());
+            var brand = HtmlEntity.DeEntitize(brandNode.InnerText.Trim());
+            if (!string.IsNullOrEmpty(brand)) return brand;
         }
 
-        // Fall back: title's first segment (before space) if it looks like a brand
-        // e.g. "K9 Natural ..." → "K9 Natural" won't work well
-        // Leave empty for now; cross-site fuzzy match will handle it via title
         return "";
     }
 
@@ -306,7 +294,7 @@ public class PetparkScanner
         {
             var idx = text.IndexOf(name, StringComparison.Ordinal);
             if (idx < 0) continue;
-            var match = Regex.Match(text[(idx + name.Length)..], @"(\d+\.?\d*)%");
+            var match = Regex.Match(text[(idx + name.Length)..], @"(\d+\.?\d*)[%％]");
             if (match.Success && double.TryParse(match.Groups[1].Value,
                 NumberStyles.Any, CultureInfo.InvariantCulture, out var val))
                 return val;
