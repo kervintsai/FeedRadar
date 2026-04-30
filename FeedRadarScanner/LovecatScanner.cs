@@ -14,8 +14,6 @@ public class LovecatScanner
         Timeout = TimeSpan.FromSeconds(30)
     };
 
-    private int _debugCount = 0;
-
     private const string Origin = "https://www.lovecat.com.tw";
 
     // Section header patterns in order of expected appearance.
@@ -206,33 +204,23 @@ public class LovecatScanner
             foreach (var t in tagsEl.EnumerateArray())
                 if (t.ValueKind == JsonValueKind.String) tags.Add(t.GetString() ?? "");
 
-        // Extract first product image URL (lovecat uses photo_urls or featured_image, not images)
+        // lovecat: featured_image is an object keyed by resolution (large/medium/original/…)
         string? imageUrl = null;
-        if (root.TryGetProperty("photo_urls", out var photoUrlsEl) && photoUrlsEl.ValueKind == JsonValueKind.Array)
+        if (root.TryGetProperty("featured_image", out var featuredEl) &&
+            featuredEl.ValueKind == JsonValueKind.Object)
         {
-            var first = photoUrlsEl.EnumerateArray().FirstOrDefault();
-            if (first.ValueKind == JsonValueKind.String)
-                imageUrl = first.GetString();
-        }
-        if (imageUrl == null && root.TryGetProperty("featured_image", out var featuredEl))
-        {
-            if (featuredEl.ValueKind == JsonValueKind.String)
-                imageUrl = featuredEl.GetString();
-            else if (featuredEl.ValueKind == JsonValueKind.Object && featuredEl.TryGetProperty("src", out var srcEl))
-                imageUrl = srcEl.GetString();
-        }
-
-        // Debug: print image fields + result for first 3 products
-        if (_debugCount < 3)
-        {
-            root.TryGetProperty("photo_urls",     out var dbgPhotoUrls);
-            root.TryGetProperty("featured_image", out var dbgFeatured);
-            Console.WriteLine($"[Debug:image] handle={handle}");
-            Console.WriteLine($"  photo_urls kind={dbgPhotoUrls.ValueKind} raw={dbgPhotoUrls}");
-            Console.WriteLine($"  featured_image kind={dbgFeatured.ValueKind} raw={dbgFeatured}");
-            Console.WriteLine($"  → imageUrl={imageUrl ?? "null"}");
-            Console.WriteLine($"[Debug:ageStage] title={title} tags=[{string.Join(",", tags)}]");
-            Interlocked.Increment(ref _debugCount);
+            foreach (var res in new[] { "large", "medium", "grande", "original" })
+            {
+                if (featuredEl.TryGetProperty(res, out var resEl) && resEl.ValueKind == JsonValueKind.String)
+                {
+                    var raw = resEl.GetString();
+                    if (!string.IsNullOrEmpty(raw))
+                    {
+                        imageUrl = raw.StartsWith("//") ? "https:" + raw : raw;
+                        break;
+                    }
+                }
+            }
         }
 
         var allSections = ExtractAllSections(root);
