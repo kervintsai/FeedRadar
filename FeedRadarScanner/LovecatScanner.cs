@@ -255,11 +255,15 @@ public class LovecatScanner
         if (!string.IsNullOrWhiteSpace(embeddedNutrition) && !sections.ContainsKey("成分"))
             sections["成分"] = embeddedNutrition;
 
-        var proteinPct  = ParseNutrientPct(nutritionText, "蛋白質");
-        var fatPct      = ParseNutrientPct(nutritionText, "脂肪");
-        var fiberPct    = ParseNutrientPct(nutritionText, "粗纖維");
-        var moisturePct = ParseNutrientPct(nutritionText, "水分");
-        var ashPct      = ParseNutrientPct(nutritionText, "灰分");
+        // Prefer dedicated nutrition section; fall back to ingredientsText for products
+        // where guaranteed-analysis values are embedded in the ingredients block.
+        var nutrientSource = !string.IsNullOrWhiteSpace(nutritionText) ? nutritionText : ingredientsText;
+
+        var proteinPct  = ParseNutrientPct(nutrientSource, "蛋白質", "粗蛋白");
+        var fatPct      = ParseNutrientPct(nutrientSource, "脂肪");
+        var fiberPct    = ParseNutrientPct(nutrientSource, "粗纖維");
+        var moisturePct = ParseNutrientPct(nutrientSource, "水分");
+        var ashPct      = ParseNutrientPct(nutrientSource, "灰分", "灰份");
 
         // NFE carbs = 100 - protein - fat - fiber - moisture - ash (all must be present)
         double? carbsPct = null;
@@ -414,13 +418,18 @@ public class LovecatScanner
         return null;
     }
 
-    private static double? ParseNutrientPct(string text, string nutrientName)
+    private static double? ParseNutrientPct(string text, params string[] names)
     {
         if (string.IsNullOrEmpty(text)) return null;
-        var idx = text.IndexOf(nutrientName, StringComparison.Ordinal);
-        if (idx < 0) return null;
-        var match = Regex.Match(text[(idx + nutrientName.Length)..], @"(\d+\.?\d*)%");
-        return match.Success && double.TryParse(match.Groups[1].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out var val) ? val : null;
+        foreach (var name in names)
+        {
+            var idx = text.IndexOf(name, StringComparison.Ordinal);
+            if (idx < 0) continue;
+            var match = Regex.Match(text[(idx + name.Length)..], @"(\d+\.?\d*)%");
+            if (match.Success && double.TryParse(match.Groups[1].Value, NumberStyles.Any, CultureInfo.InvariantCulture, out var val))
+                return val;
+        }
+        return null;
     }
 }
 
