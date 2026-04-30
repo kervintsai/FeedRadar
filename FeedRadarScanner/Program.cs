@@ -3,10 +3,9 @@ var connectionString =
     ?? (args.Length > 0 ? args[0] : "Host=localhost;Database=feedradar;Username=postgres;Password=postgres");
 
 Console.WriteLine("Connecting to database...");
-
 var repo = new ProductRepository(connectionString);
 
-var scannerCollections = new (CyberbizScanner Scanner, string[] Collections)[]
+var scannerCollections = new (IFeedScanner Scanner, string[] Collections)[]
 {
     (new LovecatScanner(), [
         "https://www.lovecat.com.tw/collections/犬乾糧主食_全部商品-20210721151014",
@@ -18,11 +17,26 @@ var scannerCollections = new (CyberbizScanner Scanner, string[] Collections)[]
         "https://www.lovecat.com.tw/collections/處方乾糧罐頭_全部商品",
         "https://www.lovecat.com.tw/collections/冷凍生鮮食專區_全部商品",
     ]),
-    (new Petco888Scanner(), [
-        "https://www.petco888.com/collections/狗の罐罐",
-        "https://www.petco888.com/collections/狗の零食",
-        "https://www.petco888.com/collections/喵の罐罐",
-        "https://www.petco888.com/collections/喵の零食",
+    (new PetparkScanner(), [
+        // Dry food
+        "https://shop.petpark.com.tw/dryfood/hot-cat-dryfood",
+        "https://shop.petpark.com.tw/dryfood/hot-dog-dryfood",
+        "https://shop.petpark.com.tw/dryfood/prescription-dryfood-cat",
+        "https://shop.petpark.com.tw/dryfood/prescription-dryfood-dog",
+        // Canned (main course)
+        "https://shop.petpark.com.tw/cans/can-maincourse-cat",
+        "https://shop.petpark.com.tw/cans/can-maincourse-dog",
+        // Wet (pouches)
+        "https://shop.petpark.com.tw/cans/main-pouchfood-cat",
+        "https://shop.petpark.com.tw/cans/main-pouchfood-dog",
+        // Treats
+        "https://shop.petpark.com.tw/treats/treats-cat/treats-muddysnack-cat",
+        "https://shop.petpark.com.tw/treats/treats-cat/natural-freezedried-cat",
+        "https://shop.petpark.com.tw/treats/treats-cat/treats-driedfish-cat",
+        "https://shop.petpark.com.tw/treats/treats-cat/fishsticks-cat",
+        "https://shop.petpark.com.tw/treats/treats-dog/treats-jerky-dog",
+        "https://shop.petpark.com.tw/treats/treats-dog/natural-freezedried-dog",
+        "https://shop.petpark.com.tw/treats/treats-dog/functional-snack-dog",
     ]),
 };
 
