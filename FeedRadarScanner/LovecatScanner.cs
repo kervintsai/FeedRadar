@@ -103,7 +103,8 @@ public class LovecatScanner
         foreach (var s in sources)
         {
             if (s.Contains("乾糧") || s.Contains("乾食")) return "dry";
-            if (s.Contains("濕食") || s.Contains("主食罐") || s.Contains("罐頭") || s.Contains("餐包")) return "wet";
+            if (s.Contains("罐頭") || s.Contains("主食罐")) return "can";
+            if (s.Contains("濕食") || s.Contains("餐包")) return "wet";
             if (s.Contains("肉乾") || s.Contains("凍乾") || s.Contains("冷凍乾燥") ||
                 s.Contains("零食") || s.Contains("點心") || s.Contains("補充條") ||
                 s.Contains("餅乾") || s.Contains("潔牙") || s.Contains("磨牙") ||
