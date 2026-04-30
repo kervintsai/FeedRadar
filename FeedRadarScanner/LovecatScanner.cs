@@ -209,9 +209,9 @@ public class LovecatScanner
         if (root.TryGetProperty("featured_image", out var featuredEl) &&
             featuredEl.ValueKind == JsonValueKind.Object)
         {
-            foreach (var res in new[] { "large", "medium", "grande", "original" })
+            foreach (var size in new[] { "large", "medium", "grande", "original" })
             {
-                if (featuredEl.TryGetProperty(res, out var resEl) && resEl.ValueKind == JsonValueKind.String)
+                if (featuredEl.TryGetProperty(size, out var resEl) && resEl.ValueKind == JsonValueKind.String)
                 {
                     var raw = resEl.GetString();
                     if (!string.IsNullOrEmpty(raw))
