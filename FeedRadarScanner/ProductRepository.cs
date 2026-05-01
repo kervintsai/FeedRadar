@@ -119,8 +119,9 @@ public class ProductRepository
         {
             findCmd.CommandText = """
                 SELECT Id FROM Products
-                WHERE Brand = @brand AND similarity(Title, @title) > 0.4
-                ORDER BY similarity(Title, @title) DESC
+                WHERE similarity(Brand, @brand) > 0.5
+                  AND similarity(Title, @title) > 0.4
+                ORDER BY similarity(Brand, @brand) + similarity(Title, @title) DESC
                 LIMIT 1;
                 """;
             findCmd.Parameters.AddWithValue("brand", product.Brand);
