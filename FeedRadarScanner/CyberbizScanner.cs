@@ -136,11 +136,12 @@ public class CyberbizScanner
         {
             try
             {
-                var p = await FetchProductAsync(handle, isTreatCollection, token);
-                if (p != null)
+                var products = await FetchProductAsync(handle, isTreatCollection, token);
+                if (products.Count > 0)
                 {
-                    lock (gate) results.Add(p);
-                    Console.WriteLine($"[{SiteName}][OK] {p.Title}");
+                    lock (gate) results.AddRange(products);
+                    foreach (var p in products)
+                        Console.WriteLine($"[{SiteName}][OK] {p.Title}");
                 }
             }
             catch (Exception ex)
@@ -194,11 +195,11 @@ public class CyberbizScanner
         return $"{uri.Scheme}://{uri.Host}{port}{encodedPath}?page={page}&per={per}&sort_by=&product_filters=%5B%5D&tags=";
     }
 
-    private async Task<Product?> FetchProductAsync(string handle, bool isTreatCollection, CancellationToken ct)
+    private async Task<List<Product>> FetchProductAsync(string handle, bool isTreatCollection, CancellationToken ct)
     {
         var encodedHandle = Uri.EscapeDataString(handle);
         var res = await _http.GetAsync($"{Origin}/products/{encodedHandle}.json", ct);
-        if (!res.IsSuccessStatusCode) return null;
+        if (!res.IsSuccessStatusCode) return [];
 
         var json = await res.Content.ReadAsStringAsync(ct);
         using var doc  = JsonDocument.Parse(json);
@@ -210,17 +211,13 @@ public class CyberbizScanner
         if (IsNonFood(title, productType))
         {
             Console.WriteLine($"[{SiteName}][Skip] non-food: {title}");
-            return null;
+            return [];
         }
 
         var tags = new List<string>();
         if (root.TryGetProperty("tags", out var tagsEl) && tagsEl.ValueKind == JsonValueKind.Array)
             foreach (var t in tagsEl.EnumerateArray())
                 if (t.ValueKind == JsonValueKind.String) tags.Add(t.GetString() ?? "");
-
-        decimal? price = null;
-        if (root.TryGetProperty("price", out var priceEl) && priceEl.ValueKind == JsonValueKind.Number)
-            price = priceEl.GetDecimal();
 
         string? imageUrl = null;
         if (root.TryGetProperty("featured_image", out var featuredEl) &&
@@ -266,6 +263,7 @@ public class CyberbizScanner
                        ?? ParseNutrientGramsAsPct(nutrientSource, servingG, "水分");
         var ashPct      = ParseNutrientPct(nutrientSource, "灰分", "灰份")
                        ?? ParseNutrientGramsAsPct(nutrientSource, servingG, "灰分", "灰份");
+        var phosphorusPct = ParseNutrientPct(nutrientSource, "磷");
 
         double? carbsPct = null;
         if (proteinPct.HasValue && fatPct.HasValue && fiberPct.HasValue &&
@@ -276,33 +274,75 @@ public class CyberbizScanner
             carbsPct = Math.Round(Math.Max(c, 0), 2);
         }
 
-        var phosphorusPct = ParseNutrientPct(nutrientSource, "磷");
+        var variants = ParseVariants(root);
 
-        return new Product
+        return variants.Select(v =>
         {
-            Url                = $"{Origin}/products/{encodedHandle}",
-            Title              = title,
-            Brand              = ExtractBrand(title),
-            PetType            = DetectPetType(title, productType ?? "", tags),
-            Age                = DetectAgeStage(title, tags),
-            IsPrescription     = DetectIsPrescription(title, tags),
-            Form               = DetectForm(title, productType ?? "", tags, isTreatCollection),
-            ImageUrl           = imageUrl,
-            IngredientsText    = ingredientsText,
-            NutritionText      = nutritionText,
-            Ingredients        = ParseIngredients(ingredientsText),
-            Sections           = sections,
-            CaloriesKcalPerKg  = ParseCaloriesKcalPerKg(sections),
-            ProteinPct         = proteinPct,
-            FatPct             = fatPct,
-            FiberPct           = fiberPct,
-            MoisturePct        = moisturePct,
-            AshPct             = ashPct,
-            CarbsPct           = carbsPct,
-            PhosphorusPct      = phosphorusPct,
-            Volume             = ParseVolume(title),
-            Price              = price,
-        };
+            var variantTitle = v.Volume != null ? $"{title} {v.CleanOption}" : title;
+            return new Product
+            {
+                Url               = $"{Origin}/products/{encodedHandle}",
+                Title             = variantTitle,
+                Brand             = ExtractBrand(title),
+                PetType           = DetectPetType(title, productType ?? "", tags),
+                Age               = DetectAgeStage(title, tags),
+                IsPrescription    = DetectIsPrescription(title, tags),
+                Form              = DetectForm(title, productType ?? "", tags, isTreatCollection),
+                ImageUrl          = imageUrl,
+                IngredientsText   = ingredientsText,
+                NutritionText     = nutritionText,
+                Ingredients       = ParseIngredients(ingredientsText),
+                Sections          = sections,
+                CaloriesKcalPerKg = ParseCaloriesKcalPerKg(sections),
+                ProteinPct        = proteinPct,
+                FatPct            = fatPct,
+                FiberPct          = fiberPct,
+                MoisturePct       = moisturePct,
+                AshPct            = ashPct,
+                CarbsPct          = carbsPct,
+                PhosphorusPct     = phosphorusPct,
+                Volume            = v.Volume ?? ParseVolume(title),
+                Price             = v.Price,
+            };
+        }).ToList();
+    }
+
+    private static List<ProductVariant> ParseVariants(JsonElement root)
+    {
+        var variants = new List<ProductVariant>();
+
+        if (root.TryGetProperty("variants", out var variantsEl) && variantsEl.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var v in variantsEl.EnumerateArray())
+            {
+                var opt1 = v.TryGetProperty("option1", out var o1) && o1.ValueKind == JsonValueKind.String
+                    ? o1.GetString() ?? "" : "";
+                var cleanOpt = Regex.Replace(opt1, @"[（(][^）)]*[）)]", "").Trim();
+                var volume   = ParseVolume(cleanOpt);
+
+                decimal? price = null;
+                if (v.TryGetProperty("price", out var vp) && vp.ValueKind == JsonValueKind.Number)
+                {
+                    var p = vp.GetDecimal();
+                    if (p > 0) price = p;
+                }
+
+                variants.Add(new ProductVariant(cleanOpt, volume, price));
+            }
+        }
+
+        if (variants.Count == 0)
+        {
+            decimal? topPrice = null;
+            if (root.TryGetProperty("price", out var priceEl) && priceEl.ValueKind == JsonValueKind.Number)
+            {
+                var p = priceEl.GetDecimal();
+                if (p > 0) topPrice = p;
+            }
+            variants.Add(new ProductVariant("", null, topPrice));
+        }
+
+        return variants;
     }
 
     // ── Parsing helpers ───────────────────────────────────────────────────────
@@ -417,9 +457,9 @@ public class CyberbizScanner
         return null;
     }
 
-    private static string? ParseVolume(string title)
+    private static string? ParseVolume(string text)
     {
-        var m = Regex.Match(title, @"(\d+(?:\.\d+)?)\s*(kg|g|ml|mL|L|公克|克)\b",
+        var m = Regex.Match(text, @"(\d+(?:\.\d+)?)\s*(kg|g|ml|mL|L|lb|lbs|公克|克)\b",
             RegexOptions.IgnoreCase);
         return m.Success ? m.Groups[1].Value + m.Groups[2].Value : null;
     }
@@ -463,6 +503,7 @@ public class CyberbizScanner
 }
 
 public record Ingredient(string Name, double? Percentage, string BaseName, string? AmountText);
+public record ProductVariant(string CleanOption, string? Volume, decimal? Price);
 
 public class Product
 {

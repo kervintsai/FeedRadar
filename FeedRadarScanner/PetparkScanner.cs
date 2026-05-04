@@ -301,7 +301,7 @@ public class PetparkScanner
 
     private static string? ParseVolume(string title)
     {
-        var m = Regex.Match(title, @"(\d+(?:\.\d+)?)\s*(kg|g|ml|mL|L|公克|克)\b",
+        var m = Regex.Match(title, @"(\d+(?:\.\d+)?)\s*(kg|g|ml|mL|L|lb|lbs|公克|克)\b",
             RegexOptions.IgnoreCase);
         return m.Success ? m.Groups[1].Value + m.Groups[2].Value : null;
     }
