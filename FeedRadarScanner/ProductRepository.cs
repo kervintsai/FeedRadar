@@ -51,20 +51,31 @@ public class ProductRepository
         // Remove legacy Url unique constraint so Products can aggregate across sites
         Exec(conn, "ALTER TABLE Products DROP CONSTRAINT IF EXISTS products_url_key;");
 
+        Exec(conn, """
+            DO $$ BEGIN
+              ALTER TABLE Products RENAME COLUMN AgeStage TO Age;
+            EXCEPTION WHEN others THEN NULL;
+            END $$;
+            """);
+
         foreach (var (col, def) in new[]
         {
-            ("AgeStage",       "TEXT NOT NULL DEFAULT ''"),
-            ("ImageUrl",       "TEXT"),
-            ("NutritionText",  "TEXT NOT NULL DEFAULT ''"),
-            ("CaloriesText",   "TEXT"),
-            ("ProteinPct",     "DOUBLE PRECISION"),
-            ("FatPct",         "DOUBLE PRECISION"),
-            ("FiberPct",       "DOUBLE PRECISION"),
-            ("MoisturePct",    "DOUBLE PRECISION"),
-            ("AshPct",         "DOUBLE PRECISION"),
-            ("CarbsPct",       "DOUBLE PRECISION"),
-            ("MinPrice",       "NUMERIC"),
-            ("MaxPrice",       "NUMERIC"),
+            ("Age",             "TEXT NOT NULL DEFAULT ''"),
+            ("ImageUrl",        "TEXT"),
+            ("NutritionText",   "TEXT NOT NULL DEFAULT ''"),
+            ("CaloriesKcalPerKg", "DOUBLE PRECISION"),
+            ("ProteinPct",      "DOUBLE PRECISION"),
+            ("FatPct",          "DOUBLE PRECISION"),
+            ("FiberPct",        "DOUBLE PRECISION"),
+            ("MoisturePct",     "DOUBLE PRECISION"),
+            ("AshPct",          "DOUBLE PRECISION"),
+            ("CarbsPct",        "DOUBLE PRECISION"),
+            ("PhosphorusPct",   "DOUBLE PRECISION"),
+            ("Volume",          "TEXT"),
+            ("MinPrice",        "NUMERIC"),
+            ("MaxPrice",        "NUMERIC"),
+            ("PriceSource",     "TEXT"),
+            ("PriceUpdatedAt",  "TEXT"),
         })
             Exec(conn, $"ALTER TABLE Products ADD COLUMN IF NOT EXISTS {col} {def};");
 
@@ -145,13 +156,15 @@ public class ProductRepository
         using var insertCmd = conn.CreateCommand();
         insertCmd.CommandText = """
             INSERT INTO Products (
-                Url, Title, Brand, PetType, AgeStage, IsPrescription, Form,
-                ImageUrl, IngredientsText, NutritionText, CaloriesText,
-                ProteinPct, FatPct, FiberPct, MoisturePct, AshPct, CarbsPct, ScannedAt
+                Url, Title, Brand, PetType, Age, IsPrescription, Form,
+                ImageUrl, IngredientsText, NutritionText, CaloriesKcalPerKg,
+                ProteinPct, FatPct, FiberPct, MoisturePct, AshPct, CarbsPct,
+                PhosphorusPct, Volume, ScannedAt
             ) VALUES (
-                @url, @title, @brand, @petType, @ageStage, @isPrescription, @form,
+                @url, @title, @brand, @petType, @age, @isPrescription, @form,
                 @imageUrl, @ingredients, @nutrition, @calories,
-                @protein, @fat, @fiber, @moisture, @ash, @carbs, @scannedAt
+                @protein, @fat, @fiber, @moisture, @ash, @carbs,
+                @phosphorus, @volume, @scannedAt
             )
             RETURNING Id;
             """;
@@ -164,36 +177,40 @@ public class ProductRepository
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             UPDATE Products SET
-                ImageUrl        = COALESCE(ImageUrl,        @imageUrl),
-                IngredientsText = CASE WHEN IngredientsText = '' THEN @ingredients ELSE IngredientsText END,
-                NutritionText   = CASE WHEN NutritionText   = '' THEN @nutrition   ELSE NutritionText   END,
-                CaloriesText    = COALESCE(CaloriesText,    @calories),
-                ProteinPct      = COALESCE(ProteinPct,      @protein),
-                FatPct          = COALESCE(FatPct,          @fat),
-                FiberPct        = COALESCE(FiberPct,        @fiber),
-                MoisturePct     = COALESCE(MoisturePct,     @moisture),
-                AshPct          = COALESCE(AshPct,          @ash),
-                CarbsPct        = COALESCE(CarbsPct,        @carbs),
-                Form            = CASE WHEN Form    = '' THEN @form    ELSE Form    END,
-                PetType         = CASE WHEN PetType = '' THEN @petType ELSE PetType END,
-                AgeStage        = CASE WHEN AgeStage= '' THEN @ageStage ELSE AgeStage END,
-                ScannedAt       = @scannedAt
+                ImageUrl          = COALESCE(ImageUrl,          @imageUrl),
+                IngredientsText   = CASE WHEN IngredientsText = '' THEN @ingredients ELSE IngredientsText END,
+                NutritionText     = CASE WHEN NutritionText   = '' THEN @nutrition   ELSE NutritionText   END,
+                CaloriesKcalPerKg = COALESCE(CaloriesKcalPerKg, @calories),
+                ProteinPct        = COALESCE(ProteinPct,        @protein),
+                FatPct            = COALESCE(FatPct,            @fat),
+                FiberPct          = COALESCE(FiberPct,          @fiber),
+                MoisturePct       = COALESCE(MoisturePct,       @moisture),
+                AshPct            = COALESCE(AshPct,            @ash),
+                CarbsPct          = COALESCE(CarbsPct,          @carbs),
+                PhosphorusPct     = COALESCE(PhosphorusPct,     @phosphorus),
+                Volume            = COALESCE(Volume,            @volume),
+                Form              = CASE WHEN Form    = '' THEN @form    ELSE Form    END,
+                PetType           = CASE WHEN PetType = '' THEN @petType ELSE PetType END,
+                Age               = CASE WHEN Age     = '' THEN @age     ELSE Age     END,
+                ScannedAt         = @scannedAt
             WHERE Id = @id;
             """;
         cmd.Parameters.AddWithValue("id",          productId);
-        cmd.Parameters.AddWithValue("imageUrl",    product.ImageUrl      as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("imageUrl",    product.ImageUrl          as object ?? DBNull.Value);
         cmd.Parameters.AddWithValue("ingredients", product.IngredientsText);
         cmd.Parameters.AddWithValue("nutrition",   product.NutritionText);
-        cmd.Parameters.AddWithValue("calories",    product.CaloriesText  as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("protein",     product.ProteinPct    as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("fat",         product.FatPct        as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("fiber",       product.FiberPct      as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("moisture",    product.MoisturePct   as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("ash",         product.AshPct        as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("carbs",       product.CarbsPct      as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("calories",    product.CaloriesKcalPerKg as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("protein",     product.ProteinPct        as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("fat",         product.FatPct            as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("fiber",       product.FiberPct          as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("moisture",    product.MoisturePct       as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("ash",         product.AshPct            as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("carbs",       product.CarbsPct          as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("phosphorus",  product.PhosphorusPct     as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("volume",      product.Volume            as object ?? DBNull.Value);
         cmd.Parameters.AddWithValue("form",        product.Form);
         cmd.Parameters.AddWithValue("petType",     product.PetType);
-        cmd.Parameters.AddWithValue("ageStage",    product.AgeStage);
+        cmd.Parameters.AddWithValue("age",         product.Age);
         cmd.Parameters.AddWithValue("scannedAt",   DateTime.UtcNow.ToString("O"));
         cmd.ExecuteNonQuery();
     }
@@ -222,8 +239,10 @@ public class ProductRepository
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             UPDATE Products SET
-                MinPrice = (SELECT MIN(Price) FROM ProductPrices WHERE ProductId = @id),
-                MaxPrice = (SELECT MAX(Price) FROM ProductPrices WHERE ProductId = @id)
+                MinPrice       = (SELECT MIN(Price)    FROM ProductPrices WHERE ProductId = @id),
+                MaxPrice       = (SELECT MAX(Price)    FROM ProductPrices WHERE ProductId = @id),
+                PriceSource    = (SELECT Site          FROM ProductPrices WHERE ProductId = @id ORDER BY Price ASC LIMIT 1),
+                PriceUpdatedAt = (SELECT ScannedAt     FROM ProductPrices WHERE ProductId = @id ORDER BY Price ASC LIMIT 1)
             WHERE Id = @id;
             """;
         cmd.Parameters.AddWithValue("id", productId);
@@ -236,19 +255,21 @@ public class ProductRepository
         cmd.Parameters.AddWithValue("title",          product.Title);
         cmd.Parameters.AddWithValue("brand",          product.Brand);
         cmd.Parameters.AddWithValue("petType",        product.PetType);
-        cmd.Parameters.AddWithValue("ageStage",       product.AgeStage);
+        cmd.Parameters.AddWithValue("age",            product.Age);
         cmd.Parameters.AddWithValue("isPrescription", product.IsPrescription);
         cmd.Parameters.AddWithValue("form",           product.Form);
-        cmd.Parameters.AddWithValue("imageUrl",       product.ImageUrl      as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("imageUrl",       product.ImageUrl          as object ?? DBNull.Value);
         cmd.Parameters.AddWithValue("ingredients",    product.IngredientsText);
         cmd.Parameters.AddWithValue("nutrition",      product.NutritionText);
-        cmd.Parameters.AddWithValue("calories",       product.CaloriesText  as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("protein",        product.ProteinPct    as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("fat",            product.FatPct        as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("fiber",          product.FiberPct      as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("moisture",       product.MoisturePct   as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("ash",            product.AshPct        as object ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("carbs",          product.CarbsPct      as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("calories",       product.CaloriesKcalPerKg as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("protein",        product.ProteinPct        as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("fat",            product.FatPct            as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("fiber",          product.FiberPct          as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("moisture",       product.MoisturePct       as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("ash",            product.AshPct            as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("carbs",          product.CarbsPct          as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("phosphorus",     product.PhosphorusPct     as object ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("volume",         product.Volume            as object ?? DBNull.Value);
         cmd.Parameters.AddWithValue("scannedAt",      DateTime.UtcNow.ToString("O"));
     }
 
@@ -303,10 +324,10 @@ public class ProductRepository
         foreach (var (value, label) in new[] { ("puppy", "幼齡"), ("adult", "成年"), ("senior", "高齡") })
         {
             using var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT COUNT(*)::int FROM Products WHERE AgeStage = @v;";
+            cmd.CommandText = "SELECT COUNT(*)::int FROM Products WHERE Age = @v;";
             cmd.Parameters.AddWithValue("v", value);
             var count = (int)(cmd.ExecuteScalar() ?? 0);
-            if (count > 0) rows.Add(("ageStage", value, label, count));
+            if (count > 0) rows.Add(("age", value, label, count));
         }
 
         foreach (var (value, label) in new[] { ("cat", "貓"), ("dog", "狗") })

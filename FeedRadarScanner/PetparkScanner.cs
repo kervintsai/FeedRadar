@@ -163,28 +163,32 @@ public class PetparkScanner
             carbsPct = Math.Round(Math.Max(c, 0), 2);
         }
 
+        var phosphorusPct = ParseNutrientPct(src2, "磷");
+
         return new Product
         {
-            Url             = url,
-            Title           = title,
-            Brand           = ExtractBrand(doc, title),
-            PetType         = DetectPetType(title),
-            AgeStage        = DetectAgeStage(title),
-            IsPrescription  = title.Contains("處方"),
-            Form            = !string.IsNullOrEmpty(formHint) ? formHint : DetectFormFromTitle(title),
-            ImageUrl        = imageUrl,
-            IngredientsText = ingredientsText,
-            NutritionText   = nutritionText,
-            Ingredients     = new List<Ingredient>(),
-            Sections        = new Dictionary<string, string>(),
-            CaloriesText    = null,
-            ProteinPct      = proteinPct,
-            FatPct          = fatPct,
-            FiberPct        = fiberPct,
-            MoisturePct     = moisturePct,
-            AshPct          = ashPct,
-            CarbsPct        = carbsPct,
-            Price           = price,
+            Url               = url,
+            Title             = title,
+            Brand             = ExtractBrand(doc, title),
+            PetType           = DetectPetType(title),
+            Age               = DetectAgeStage(title),
+            IsPrescription    = title.Contains("處方"),
+            Form              = !string.IsNullOrEmpty(formHint) ? formHint : DetectFormFromTitle(title),
+            ImageUrl          = imageUrl,
+            IngredientsText   = ingredientsText,
+            NutritionText     = nutritionText,
+            Ingredients       = new List<Ingredient>(),
+            Sections          = new Dictionary<string, string>(),
+            CaloriesKcalPerKg = null,
+            ProteinPct        = proteinPct,
+            FatPct            = fatPct,
+            FiberPct          = fiberPct,
+            MoisturePct       = moisturePct,
+            AshPct            = ashPct,
+            CarbsPct          = carbsPct,
+            PhosphorusPct     = phosphorusPct,
+            Volume            = ParseVolume(title),
+            Price             = price,
         };
     }
 
@@ -293,5 +297,12 @@ public class PetparkScanner
                 return val;
         }
         return null;
+    }
+
+    private static string? ParseVolume(string title)
+    {
+        var m = Regex.Match(title, @"(\d+(?:\.\d+)?)\s*(kg|g|ml|mL|L|公克|克)\b",
+            RegexOptions.IgnoreCase);
+        return m.Success ? m.Groups[1].Value + m.Groups[2].Value : null;
     }
 }

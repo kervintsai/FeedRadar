@@ -276,28 +276,32 @@ public class CyberbizScanner
             carbsPct = Math.Round(Math.Max(c, 0), 2);
         }
 
+        var phosphorusPct = ParseNutrientPct(nutrientSource, "磷");
+
         return new Product
         {
-            Url             = $"{Origin}/products/{encodedHandle}",
-            Title           = title,
-            Brand           = ExtractBrand(title),
-            PetType         = DetectPetType(title, productType ?? "", tags),
-            AgeStage        = DetectAgeStage(title, tags),
-            IsPrescription  = DetectIsPrescription(title, tags),
-            Form            = DetectForm(title, productType ?? "", tags, isTreatCollection),
-            ImageUrl        = imageUrl,
-            IngredientsText = ingredientsText,
-            NutritionText   = nutritionText,
-            Ingredients     = ParseIngredients(ingredientsText),
-            Sections        = sections,
-            CaloriesText    = ParseCaloriesText(sections),
-            ProteinPct      = proteinPct,
-            FatPct          = fatPct,
-            FiberPct        = fiberPct,
-            MoisturePct     = moisturePct,
-            AshPct          = ashPct,
-            CarbsPct        = carbsPct,
-            Price           = price,
+            Url                = $"{Origin}/products/{encodedHandle}",
+            Title              = title,
+            Brand              = ExtractBrand(title),
+            PetType            = DetectPetType(title, productType ?? "", tags),
+            Age                = DetectAgeStage(title, tags),
+            IsPrescription     = DetectIsPrescription(title, tags),
+            Form               = DetectForm(title, productType ?? "", tags, isTreatCollection),
+            ImageUrl           = imageUrl,
+            IngredientsText    = ingredientsText,
+            NutritionText      = nutritionText,
+            Ingredients        = ParseIngredients(ingredientsText),
+            Sections           = sections,
+            CaloriesKcalPerKg  = ParseCaloriesKcalPerKg(sections),
+            ProteinPct         = proteinPct,
+            FatPct             = fatPct,
+            FiberPct           = fiberPct,
+            MoisturePct        = moisturePct,
+            AshPct             = ashPct,
+            CarbsPct           = carbsPct,
+            PhosphorusPct      = phosphorusPct,
+            Volume             = ParseVolume(title),
+            Price              = price,
         };
     }
 
@@ -397,20 +401,27 @@ public class CyberbizScanner
         return result;
     }
 
-    private static string? ParseCaloriesText(Dictionary<string, string> sections)
+    private static double? ParseCaloriesKcalPerKg(Dictionary<string, string> sections)
     {
         foreach (var text in sections.Values)
         {
             var idx = text.IndexOf("熱量", StringComparison.Ordinal);
             if (idx < 0) continue;
-            var start = idx + 2;
-            while (start < text.Length && text[start] is '：' or ':' or ' ') start++;
-            var end = text.IndexOfAny(new[] { '\n', '、', '\r', '；' }, start);
-            if (end < 0) end = Math.Min(start + 40, text.Length);
-            var cal = text[start..end].Trim();
-            if (cal.Length > 0) return cal;
+            var segment = text[idx..Math.Min(idx + 60, text.Length)];
+            var m = Regex.Match(segment, @"(\d+(?:\.\d+)?)\s*(?:大卡|kcal|Kcal|KCAL)",
+                RegexOptions.IgnoreCase);
+            if (m.Success && double.TryParse(m.Groups[1].Value, NumberStyles.Any,
+                CultureInfo.InvariantCulture, out var val))
+                return val;
         }
         return null;
+    }
+
+    private static string? ParseVolume(string title)
+    {
+        var m = Regex.Match(title, @"(\d+(?:\.\d+)?)\s*(kg|g|ml|mL|L|公克|克)\b",
+            RegexOptions.IgnoreCase);
+        return m.Success ? m.Groups[1].Value + m.Groups[2].Value : null;
     }
 
     private static double? ParseNutrientPct(string text, params string[] names)
@@ -459,7 +470,7 @@ public class Product
     public string  Title           { get; set; } = "";
     public string  Brand           { get; set; } = "";
     public string  PetType         { get; set; } = "";
-    public string  AgeStage        { get; set; } = "";
+    public string  Age             { get; set; } = "";
     public bool    IsPrescription  { get; set; }
     public string  Form            { get; set; } = "";
     public string? ImageUrl        { get; set; }
@@ -467,12 +478,14 @@ public class Product
     public string  NutritionText   { get; set; } = "";
     public List<Ingredient>           Ingredients { get; set; } = new();
     public Dictionary<string, string> Sections    { get; set; } = new();
-    public string?  CaloriesText { get; set; }
-    public double?  ProteinPct   { get; set; }
-    public double?  FatPct       { get; set; }
-    public double?  FiberPct     { get; set; }
-    public double?  MoisturePct  { get; set; }
-    public double?  AshPct       { get; set; }
-    public double?  CarbsPct     { get; set; }
-    public decimal? Price        { get; set; }
+    public double?  CaloriesKcalPerKg { get; set; }
+    public double?  ProteinPct        { get; set; }
+    public double?  FatPct            { get; set; }
+    public double?  FiberPct          { get; set; }
+    public double?  MoisturePct       { get; set; }
+    public double?  AshPct            { get; set; }
+    public double?  CarbsPct          { get; set; }
+    public double?  PhosphorusPct     { get; set; }
+    public string?  Volume            { get; set; }
+    public decimal? Price             { get; set; }
 }

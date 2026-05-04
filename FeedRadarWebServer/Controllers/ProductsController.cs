@@ -14,7 +14,7 @@ public class ProductsController(ProductRepository repo, IMemoryCache cache) : Co
         [FromQuery] string? ingredient,
         [FromQuery] string? excludeIngredient,
         [FromQuery] string? petType,
-        [FromQuery] string? ageStage,
+        [FromQuery] string? age,
         [FromQuery] string? form,
         [FromQuery] bool?   isPrescription,
         [FromQuery] int     page  = 1,
@@ -23,10 +23,10 @@ public class ProductsController(ProductRepository repo, IMemoryCache cache) : Co
         if (page < 1) page = 1;
         limit = Math.Clamp(limit, 1, MaxLimit);
 
-        var key = $"products:{brand}:{ingredient}:{excludeIngredient}:{petType}:{ageStage}:{form}:{isPrescription}:{page}:{limit}";
+        var key = $"products:{brand}:{ingredient}:{excludeIngredient}:{petType}:{age}:{form}:{isPrescription}:{page}:{limit}";
         if (!cache.TryGetValue(key, out ProductsPageDto? data))
         {
-            var (products, total) = repo.GetAll(brand, ingredient, excludeIngredient, petType, ageStage, form, isPrescription, page, limit);
+            var (products, total) = repo.GetAll(brand, ingredient, excludeIngredient, petType, age, form, isPrescription, page, limit);
             var totalPages = total == 0 ? 1 : (int)Math.Ceiling(total / (double)limit);
             data = new ProductsPageDto(products, new PaginationDto(page, limit, total, totalPages));
             cache.Set(key, data, TimeSpan.FromMinutes(5));

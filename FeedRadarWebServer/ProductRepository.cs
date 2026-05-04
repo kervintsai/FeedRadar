@@ -59,20 +59,31 @@ public class ProductRepository
 
         Exec(conn, "ALTER TABLE Products DROP CONSTRAINT IF EXISTS products_url_key;");
 
+        Exec(conn, """
+            DO $$ BEGIN
+              ALTER TABLE Products RENAME COLUMN AgeStage TO Age;
+            EXCEPTION WHEN others THEN NULL;
+            END $$;
+            """);
+
         foreach (var (col, def) in new[]
         {
-            ("AgeStage",       "TEXT NOT NULL DEFAULT ''"),
-            ("ImageUrl",       "TEXT"),
-            ("NutritionText",  "TEXT NOT NULL DEFAULT ''"),
-            ("CaloriesText",   "TEXT"),
-            ("ProteinPct",     "DOUBLE PRECISION"),
-            ("FatPct",         "DOUBLE PRECISION"),
-            ("FiberPct",       "DOUBLE PRECISION"),
-            ("MoisturePct",    "DOUBLE PRECISION"),
-            ("AshPct",         "DOUBLE PRECISION"),
-            ("CarbsPct",       "DOUBLE PRECISION"),
-            ("MinPrice",       "NUMERIC"),
-            ("MaxPrice",       "NUMERIC"),
+            ("Age",               "TEXT NOT NULL DEFAULT ''"),
+            ("ImageUrl",          "TEXT"),
+            ("NutritionText",     "TEXT NOT NULL DEFAULT ''"),
+            ("CaloriesKcalPerKg", "DOUBLE PRECISION"),
+            ("ProteinPct",        "DOUBLE PRECISION"),
+            ("FatPct",            "DOUBLE PRECISION"),
+            ("FiberPct",          "DOUBLE PRECISION"),
+            ("MoisturePct",       "DOUBLE PRECISION"),
+            ("AshPct",            "DOUBLE PRECISION"),
+            ("CarbsPct",          "DOUBLE PRECISION"),
+            ("PhosphorusPct",     "DOUBLE PRECISION"),
+            ("Volume",            "TEXT"),
+            ("MinPrice",          "NUMERIC"),
+            ("MaxPrice",          "NUMERIC"),
+            ("PriceSource",       "TEXT"),
+            ("PriceUpdatedAt",    "TEXT"),
         })
             Exec(conn, $"ALTER TABLE Products ADD COLUMN IF NOT EXISTS {col} {def};");
 
@@ -128,7 +139,7 @@ public class ProductRepository
             Brands:         all.Where(r => r.Category == "brand").Select(Map).ToList(),
             Ingredients:    all.Where(r => r.Category == "ingredient").Select(Map).ToList(),
             PetTypes:       all.Where(r => r.Category == "petType").Select(Map).ToList(),
-            AgeStages:      all.Where(r => r.Category == "ageStage").Select(Map).ToList(),
+            Ages:           all.Where(r => r.Category == "age").Select(Map).ToList(),
             Forms:          all.Where(r => r.Category == "form").Select(Map).ToList(),
             IsPrescription: all.Where(r => r.Category == "isPrescription").Select(Map).ToList()
         );
@@ -167,11 +178,11 @@ public class ProductRepository
         {
             foreach (var (value, label) in new[] { ("puppy", "幼齡"), ("adult", "成年"), ("senior", "高齡") })
             {
-                var c = Count(conn, $"SELECT COUNT(*) FROM Products WHERE AgeStage='{value}'");
-                if (c > 0) rows.Add(("ageStage", value, label, c));
+                var c = Count(conn, $"SELECT COUNT(*) FROM Products WHERE Age='{value}'");
+                if (c > 0) rows.Add(("age", value, label, c));
             }
         }
-        catch (Exception ex) { Console.WriteLine($"[BuildFilters] ageStage query failed: {ex.Message}"); }
+        catch (Exception ex) { Console.WriteLine($"[BuildFilters] age query failed: {ex.Message}"); }
 
         try
         {
@@ -226,7 +237,7 @@ public class ProductRepository
 
     public (List<ProductDto> Products, int Total) GetAll(
         string? brand, string? ingredient, string? excludeIngredient,
-        string? petType, string? ageStage, string? form, bool? isPrescription,
+        string? petType, string? age, string? form, bool? isPrescription,
         int page, int limit)
     {
         using var conn = new NpgsqlConnection(_connectionString);
@@ -265,10 +276,10 @@ public class ProductRepository
             conditions.Add("PetType = @petType");
             cmd.Parameters.AddWithValue("petType", petType);
         }
-        if (!string.IsNullOrWhiteSpace(ageStage))
+        if (!string.IsNullOrWhiteSpace(age))
         {
-            conditions.Add("AgeStage = @ageStage");
-            cmd.Parameters.AddWithValue("ageStage", ageStage);
+            conditions.Add("Age = @age");
+            cmd.Parameters.AddWithValue("age", age);
         }
         if (!string.IsNullOrWhiteSpace(form))
         {
@@ -295,10 +306,10 @@ public class ProductRepository
         var total = Convert.ToInt32(countCmd.ExecuteScalar() ?? 0);
 
         cmd.CommandText = $"""
-            SELECT Id, Url, Title, Brand, PetType, AgeStage, IsPrescription, Form,
+            SELECT Id, Url, Title, Brand, PetType, Age, IsPrescription, Form,
                    ImageUrl, IngredientsText, NutritionText,
-                   ProteinPct, FatPct, FiberPct, MoisturePct, AshPct, CarbsPct, CaloriesText,
-                   MinPrice, MaxPrice
+                   ProteinPct, FatPct, CarbsPct, PhosphorusPct, CaloriesKcalPerKg,
+                   Volume, MinPrice, PriceSource, PriceUpdatedAt
             FROM Products {where}
             ORDER BY Title
             LIMIT @lim OFFSET @off;
@@ -306,50 +317,47 @@ public class ProductRepository
         cmd.Parameters.AddWithValue("lim", limit);
         cmd.Parameters.AddWithValue("off", (page - 1) * limit);
 
-        var products = Query<ProductDto>(cmd, r => new ProductDto(
-            Id:              r.GetInt32(0),
-            Url:             r.GetString(1),
-            Title:           r.GetString(2),
-            Brand:           r.GetString(3),
-            PetType:         r.GetString(4),
-            AgeStage:        r.GetString(5),
-            IsPrescription:  r.GetBoolean(6),
-            Form:            r.GetString(7),
-            ImageUrl:        r.IsDBNull(8)  ? null : r.GetString(8),
-            IngredientsText: r.GetString(9),
-            NutritionText:   r.GetString(10),
-            ProteinPct:      r.IsDBNull(11) ? null : r.GetDouble(11),
-            FatPct:          r.IsDBNull(12) ? null : r.GetDouble(12),
-            FiberPct:        r.IsDBNull(13) ? null : r.GetDouble(13),
-            MoisturePct:     r.IsDBNull(14) ? null : r.GetDouble(14),
-            AshPct:          r.IsDBNull(15) ? null : r.GetDouble(15),
-            CarbsPct:        r.IsDBNull(16) ? null : r.GetDouble(16),
-            CaloriesText:    r.IsDBNull(17) ? null : r.GetString(17),
-            MinPrice:        r.IsDBNull(18) ? null : r.GetDecimal(18),
-            MaxPrice:        r.IsDBNull(19) ? null : r.GetDecimal(19),
-            Prices:          new List<PriceDto>()
-        ));
-
-        // Fetch prices for this page's products
-        if (products.Count > 0)
+        var products = Query<ProductDto>(cmd, r =>
         {
-            var ids = string.Join(",", products.Select(p => p.Id));
-            var priceMap = new Dictionary<int, List<PriceDto>>();
-            using var priceCmd = new NpgsqlConnection(_connectionString);
-            priceCmd.Open();
-            using var pc = priceCmd.CreateCommand();
-            pc.CommandText = $"SELECT ProductId, Site, Price, Currency, Url FROM ProductPrices WHERE ProductId IN ({ids}) ORDER BY Price;";
-            using var pr = pc.ExecuteReader();
-            while (pr.Read())
-            {
-                var pid = pr.GetInt32(0);
-                if (!priceMap.ContainsKey(pid)) priceMap[pid] = new List<PriceDto>();
-                priceMap[pid].Add(new PriceDto(pr.GetString(1), pr.GetDecimal(2), pr.GetString(3), pr.GetString(4)));
-            }
-            products = products.Select(p => p with { Prices = priceMap.GetValueOrDefault(p.Id, new()) }).ToList();
-        }
+            var imageUrl     = r.IsDBNull(8)  ? null : r.GetString(8);
+            var ingText      = r.GetString(9);
+            var ingredients  = SplitIngredients(ingText);
+            return new ProductDto(
+                Id:               r.GetInt32(0),
+                Url:              r.GetString(1),
+                Title:            r.GetString(2),
+                Brand:            r.GetString(3),
+                PetType:          r.GetString(4),
+                Age:              r.GetString(5),
+                IsPrescription:   r.GetBoolean(6),
+                Form:             r.GetString(7),
+                Images:           imageUrl != null ? [imageUrl] : [],
+                Ingredients:      ingredients,
+                NutritionText:    r.GetString(10),
+                ProteinPct:       r.IsDBNull(11) ? null : r.GetDouble(11),
+                FatPct:           r.IsDBNull(12) ? null : r.GetDouble(12),
+                CarbsPct:         r.IsDBNull(13) ? null : r.GetDouble(13),
+                PhosphorusPct:    r.IsDBNull(14) ? null : r.GetDouble(14),
+                CaloriesKcalPerKg: r.IsDBNull(15) ? null : r.GetDouble(15),
+                Volume:           r.IsDBNull(16) ? null : r.GetString(16),
+                Price:            r.IsDBNull(17) ? null : r.GetDecimal(17),
+                PriceSource:      r.IsDBNull(18) ? null : r.GetString(18),
+                PriceUpdatedAt:   r.IsDBNull(19) ? null : r.GetString(19),
+                Functional:       [],
+                IsGrainFree:      null
+            );
+        });
 
         return (products, total);
+    }
+
+    private static List<string> SplitIngredients(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return [];
+        return text
+            .Split(new[] { '、', ',', '，' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(s => s.Length > 0)
+            .ToList();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

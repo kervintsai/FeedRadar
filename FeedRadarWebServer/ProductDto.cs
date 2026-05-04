@@ -10,37 +10,35 @@ public record FiltersDto(
     List<FilterOption> Brands,
     List<FilterOption> Ingredients,
     List<FilterOption> PetTypes,
-    List<FilterOption> AgeStages,
+    List<FilterOption> Ages,
     List<FilterOption> Forms,
     List<FilterOption> IsPrescription
 );
 
-// ── Price ─────────────────────────────────────────────────────────────────────
-public record PriceDto(string Site, decimal Price, string Currency, string Url);
-
 // ── Product ───────────────────────────────────────────────────────────────────
 public record ProductDto(
-    int     Id,
-    string  Url,
-    string  Title,
-    string  Brand,
-    string  PetType,
-    string  AgeStage,
-    bool    IsPrescription,
-    string  Form,
-    string? ImageUrl,
-    string  IngredientsText,
-    string  NutritionText,
-    double? ProteinPct,
-    double? FatPct,
-    double? FiberPct,
-    double? MoisturePct,
-    double? AshPct,
-    double? CarbsPct,
-    string? CaloriesText,
-    decimal? MinPrice,
-    decimal? MaxPrice,
-    List<PriceDto> Prices
+    int           Id,
+    string        Url,
+    string        Title,
+    string        Brand,
+    string        PetType,
+    string        Age,
+    bool          IsPrescription,
+    string        Form,
+    List<string>  Images,
+    List<string>  Ingredients,
+    string        NutritionText,
+    double?       ProteinPct,
+    double?       FatPct,
+    double?       CarbsPct,
+    double?       PhosphorusPct,
+    double?       CaloriesKcalPerKg,
+    string?       Volume,
+    decimal?      Price,
+    string?       PriceSource,
+    string?       PriceUpdatedAt,
+    List<string>  Functional,
+    bool?         IsGrainFree
 );
 
 public record PaginationDto(int Page, int Limit, int Total, int TotalPages);
