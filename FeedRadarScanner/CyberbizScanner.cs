@@ -530,4 +530,17 @@ public class Product
     public string?  Volume            { get; set; }
     public decimal? Price             { get; set; }
     public List<(string Volume, decimal Price)> Variants { get; set; } = new();
+
+    public string ComputeMatchKey()
+    {
+        var s = Title;
+        s = Regex.Replace(s, @"【[^】]*】", "");
+        s = Regex.Replace(s, @"\d+(?:\.\d+)?\s*(?:kg|g|lb|lbs|公斤|公克|克|ml|mL|L)\b", "", RegexOptions.IgnoreCase);
+        s = Regex.Replace(s, @"[（(]([^）)]*)[）)]", " $1 ");
+        if (!string.IsNullOrWhiteSpace(Brand))
+            s = Regex.Replace(s, Regex.Escape(Brand), " ", RegexOptions.IgnoreCase);
+        s = Regex.Replace(s, @"系列|天然|乾糧|濕食|罐頭|飼料|貓糧|狗糧|糧食|糧", "");
+        s = Regex.Replace(s, @"[-_,\.。、·－]", " ");
+        return Regex.Replace(s, @"\s+", " ").Trim();
+    }
 }

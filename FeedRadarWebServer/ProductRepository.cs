@@ -69,6 +69,7 @@ public class ProductRepository
         foreach (var (col, def) in new[]
         {
             ("Age",               "TEXT NOT NULL DEFAULT ''"),
+            ("MatchKey",          "TEXT NOT NULL DEFAULT ''"),
             ("ImageUrl",          "TEXT"),
             ("NutritionText",     "TEXT NOT NULL DEFAULT ''"),
             ("CaloriesKcalPerKg", "DOUBLE PRECISION"),

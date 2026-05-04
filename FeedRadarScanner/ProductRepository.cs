@@ -63,6 +63,7 @@ public class ProductRepository
         foreach (var (col, def) in new[]
         {
             ("Age",             "TEXT NOT NULL DEFAULT ''"),
+            ("MatchKey",        "TEXT NOT NULL DEFAULT ''"),
             ("ImageUrl",        "TEXT"),
             ("NutritionText",   "TEXT NOT NULL DEFAULT ''"),
             ("CaloriesKcalPerKg", "DOUBLE PRECISION"),
@@ -145,17 +146,22 @@ public class ProductRepository
     private static int FindOrCreateProduct(NpgsqlConnection conn, Product product)
     {
         using var findCmd = conn.CreateCommand();
+        var matchKey = product.ComputeMatchKey();
         if (!string.IsNullOrWhiteSpace(product.Brand))
         {
             findCmd.CommandText = """
                 SELECT Id FROM Products
                 WHERE similarity(Brand, @brand) > 0.5
-                  AND similarity(Title, @title) > 0.4
-                ORDER BY similarity(Brand, @brand) + similarity(Title, @title) DESC
+                  AND (similarity(MatchKey, @matchKey) > 0.3
+                       OR similarity(Title, @title) > 0.4)
+                ORDER BY similarity(Brand, @brand)
+                       + GREATEST(similarity(MatchKey, @matchKey),
+                                  similarity(Title, @title) * 0.8) DESC
                 LIMIT 1;
                 """;
-            findCmd.Parameters.AddWithValue("brand", product.Brand);
-            findCmd.Parameters.AddWithValue("title", product.Title);
+            findCmd.Parameters.AddWithValue("brand",    product.Brand);
+            findCmd.Parameters.AddWithValue("matchKey", matchKey);
+            findCmd.Parameters.AddWithValue("title",    product.Title);
         }
         else
         {
@@ -178,12 +184,12 @@ public class ProductRepository
                 Url, Title, Brand, PetType, Age, IsPrescription, Form,
                 ImageUrl, IngredientsText, NutritionText, CaloriesKcalPerKg,
                 ProteinPct, FatPct, FiberPct, MoisturePct, AshPct, CarbsPct,
-                PhosphorusPct, Volume, ScannedAt
+                PhosphorusPct, Volume, MatchKey, ScannedAt
             ) VALUES (
                 @url, @title, @brand, @petType, @age, @isPrescription, @form,
                 @imageUrl, @ingredients, @nutrition, @calories,
                 @protein, @fat, @fiber, @moisture, @ash, @carbs,
-                @phosphorus, @volume, @scannedAt
+                @phosphorus, @volume, @matchKey, @scannedAt
             )
             RETURNING Id;
             """;
@@ -299,6 +305,7 @@ public class ProductRepository
         cmd.Parameters.AddWithValue("brand",          product.Brand);
         cmd.Parameters.AddWithValue("petType",        product.PetType);
         cmd.Parameters.AddWithValue("age",            product.Age);
+        cmd.Parameters.AddWithValue("matchKey",       product.ComputeMatchKey());
         cmd.Parameters.AddWithValue("isPrescription", product.IsPrescription);
         cmd.Parameters.AddWithValue("form",           product.Form);
         cmd.Parameters.AddWithValue("imageUrl",       product.ImageUrl          as object ?? DBNull.Value);
