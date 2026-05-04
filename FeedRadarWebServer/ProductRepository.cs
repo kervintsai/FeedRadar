@@ -101,6 +101,7 @@ public class ProductRepository
             """);
 
         Exec(conn, "ALTER TABLE ProductPrices ADD COLUMN IF NOT EXISTS Volume TEXT NOT NULL DEFAULT '';");
+        Exec(conn, "ALTER TABLE ProductPrices ADD COLUMN IF NOT EXISTS PricePerGram NUMERIC;");
         Exec(conn, "ALTER TABLE ProductPrices DROP CONSTRAINT IF EXISTS productprices_productid_site_key;");
         Exec(conn, """
             DO $$ BEGIN
@@ -366,10 +367,10 @@ public class ProductRepository
             vConn.Open();
             using var vc    = vConn.CreateCommand();
             vc.CommandText  = $"""
-                SELECT ProductId, Volume, Price, Site, ScannedAt
+                SELECT ProductId, Volume, Price, PricePerGram, Site, ScannedAt
                 FROM ProductPrices
                 WHERE ProductId IN ({ids})
-                ORDER BY ProductId, Price ASC;
+                ORDER BY ProductId, PricePerGram ASC NULLS LAST, Price ASC;
                 """;
             using var vr = vc.ExecuteReader();
             while (vr.Read())
@@ -377,10 +378,11 @@ public class ProductRepository
                 var pid = vr.GetInt32(0);
                 if (!variantMap.ContainsKey(pid)) variantMap[pid] = new();
                 variantMap[pid].Add(new PriceVariantDto(
-                    Volume:    vr.GetString(1) is { Length: > 0 } vol ? vol : null,
-                    Price:     vr.GetDecimal(2),
-                    Site:      vr.GetString(3),
-                    UpdatedAt: vr.IsDBNull(4) ? null : vr.GetString(4)
+                    Volume:       vr.GetString(1) is { Length: > 0 } vol ? vol : null,
+                    Price:        vr.GetDecimal(2),
+                    PricePerGram: vr.IsDBNull(3) ? null : vr.GetDecimal(3),
+                    Site:         vr.GetString(4),
+                    UpdatedAt:    vr.IsDBNull(5) ? null : vr.GetString(5)
                 ));
             }
             products = products.Select(p => p with {

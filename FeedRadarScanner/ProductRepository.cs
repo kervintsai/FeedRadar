@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
 using Npgsql;
 
 public class ProductRepository
@@ -96,6 +98,7 @@ public class ProductRepository
             """);
 
         Exec(conn, "ALTER TABLE ProductPrices ADD COLUMN IF NOT EXISTS Volume TEXT NOT NULL DEFAULT '';");
+        Exec(conn, "ALTER TABLE ProductPrices ADD COLUMN IF NOT EXISTS PricePerGram NUMERIC;");
         Exec(conn, "ALTER TABLE ProductPrices DROP CONSTRAINT IF EXISTS productprices_productid_site_key;");
         Exec(conn, """
             DO $$ BEGIN
@@ -233,22 +236,45 @@ public class ProductRepository
 
     private static void UpsertPrice(NpgsqlConnection conn, int productId, string site, decimal price, string volume, string url)
     {
+        var grams        = ParseVolumeToGrams(volume);
+        var pricePerGram = grams is > 0 ? Math.Round(price / grams.Value, 6) : (decimal?)null;
+
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO ProductPrices (ProductId, Site, Volume, Price, Url, ScannedAt)
-            VALUES (@productId, @site, @volume, @price, @url, @scannedAt)
+            INSERT INTO ProductPrices (ProductId, Site, Volume, Price, PricePerGram, Url, ScannedAt)
+            VALUES (@productId, @site, @volume, @price, @ppg, @url, @scannedAt)
             ON CONFLICT (ProductId, Site, Volume) DO UPDATE SET
-                Price     = EXCLUDED.Price,
-                Url       = EXCLUDED.Url,
-                ScannedAt = EXCLUDED.ScannedAt;
+                Price        = EXCLUDED.Price,
+                PricePerGram = EXCLUDED.PricePerGram,
+                Url          = EXCLUDED.Url,
+                ScannedAt    = EXCLUDED.ScannedAt;
             """;
         cmd.Parameters.AddWithValue("productId", productId);
         cmd.Parameters.AddWithValue("site",      site);
         cmd.Parameters.AddWithValue("volume",    volume);
         cmd.Parameters.AddWithValue("price",     price);
+        cmd.Parameters.AddWithValue("ppg",       pricePerGram as object ?? DBNull.Value);
         cmd.Parameters.AddWithValue("url",       url);
         cmd.Parameters.AddWithValue("scannedAt", DateTime.UtcNow.ToString("O"));
         cmd.ExecuteNonQuery();
+    }
+
+    private static decimal? ParseVolumeToGrams(string volume)
+    {
+        if (string.IsNullOrWhiteSpace(volume)) return null;
+        var m = Regex.Match(volume, @"(\d+(?:\.\d+)?)\s*(kg|g|ml|mL|L|lb|lbs|公克|克)\b",
+            RegexOptions.IgnoreCase);
+        if (!m.Success) return null;
+        if (!decimal.TryParse(m.Groups[1].Value, NumberStyles.Any,
+            CultureInfo.InvariantCulture, out var amount)) return null;
+        var unit = m.Groups[2].Value.ToLowerInvariant();
+        if (unit == "kg" || unit == "l")   return amount * 1000;
+        if (unit == "lb" || unit == "lbs") return Math.Round(amount * 453.592m, 2);
+        if (unit == "g"  || unit == "ml")  return amount;
+        // 公克 / 克 contain non-ASCII, compare original
+        var origUnit = m.Groups[2].Value;
+        if (origUnit == "公克" || origUnit == "克") return amount;
+        return null;
     }
 
     private static void UpdatePriceRange(NpgsqlConnection conn, int productId)

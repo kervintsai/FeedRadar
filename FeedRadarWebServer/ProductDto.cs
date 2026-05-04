@@ -16,7 +16,7 @@ public record FiltersDto(
 );
 
 // ── Price ─────────────────────────────────────────────────────────────────────
-public record PriceVariantDto(string? Volume, decimal Price, string Site, string? UpdatedAt);
+public record PriceVariantDto(string? Volume, decimal Price, decimal? PricePerGram, string Site, string? UpdatedAt);
 
 // ── Product ───────────────────────────────────────────────────────────────────
 public record ProductDto(
