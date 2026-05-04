@@ -15,6 +15,9 @@ public record FiltersDto(
     List<FilterOption> IsPrescription
 );
 
+// ── Price ─────────────────────────────────────────────────────────────────────
+public record PriceVariantDto(string? Volume, decimal Price, string Site, string? UpdatedAt);
+
 // ── Product ───────────────────────────────────────────────────────────────────
 public record ProductDto(
     int           Id,
@@ -33,10 +36,10 @@ public record ProductDto(
     double?       CarbsPct,
     double?       PhosphorusPct,
     double?       CaloriesKcalPerKg,
-    string?       Volume,
     decimal?      Price,
     string?       PriceSource,
     string?       PriceUpdatedAt,
+    List<PriceVariantDto> Variants,
     List<string>  Functional,
     bool?         IsGrainFree
 );

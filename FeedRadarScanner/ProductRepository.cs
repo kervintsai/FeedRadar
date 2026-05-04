@@ -95,6 +95,16 @@ public class ProductRepository
             );
             """);
 
+        Exec(conn, "ALTER TABLE ProductPrices ADD COLUMN IF NOT EXISTS Volume TEXT NOT NULL DEFAULT '';");
+        Exec(conn, "ALTER TABLE ProductPrices DROP CONSTRAINT IF EXISTS productprices_productid_site_key;");
+        Exec(conn, """
+            DO $$ BEGIN
+              ALTER TABLE ProductPrices ADD CONSTRAINT productprices_productid_site_volume_key
+                UNIQUE (ProductId, Site, Volume);
+            EXCEPTION WHEN duplicate_object THEN NULL;
+            END $$;
+            """);
+
         Exec(conn, """
             CREATE TABLE IF NOT EXISTS FilterOptions (
                 Category TEXT NOT NULL,
@@ -116,9 +126,15 @@ public class ProductRepository
         var productId = FindOrCreateProduct(conn, product);
         MergeProductData(conn, productId, product);
 
-        if (product.Price.HasValue)
+        if (product.Variants.Count > 0)
         {
-            UpsertPrice(conn, productId, site, product.Price.Value, product.Url);
+            foreach (var (volume, price) in product.Variants)
+                UpsertPrice(conn, productId, site, price, volume, product.Url);
+            UpdatePriceRange(conn, productId);
+        }
+        else if (product.Price.HasValue)
+        {
+            UpsertPrice(conn, productId, site, product.Price.Value, "", product.Url);
             UpdatePriceRange(conn, productId);
         }
     }
@@ -215,19 +231,20 @@ public class ProductRepository
         cmd.ExecuteNonQuery();
     }
 
-    private static void UpsertPrice(NpgsqlConnection conn, int productId, string site, decimal price, string url)
+    private static void UpsertPrice(NpgsqlConnection conn, int productId, string site, decimal price, string volume, string url)
     {
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO ProductPrices (ProductId, Site, Price, Url, ScannedAt)
-            VALUES (@productId, @site, @price, @url, @scannedAt)
-            ON CONFLICT (ProductId, Site) DO UPDATE SET
+            INSERT INTO ProductPrices (ProductId, Site, Volume, Price, Url, ScannedAt)
+            VALUES (@productId, @site, @volume, @price, @url, @scannedAt)
+            ON CONFLICT (ProductId, Site, Volume) DO UPDATE SET
                 Price     = EXCLUDED.Price,
                 Url       = EXCLUDED.Url,
                 ScannedAt = EXCLUDED.ScannedAt;
             """;
         cmd.Parameters.AddWithValue("productId", productId);
         cmd.Parameters.AddWithValue("site",      site);
+        cmd.Parameters.AddWithValue("volume",    volume);
         cmd.Parameters.AddWithValue("price",     price);
         cmd.Parameters.AddWithValue("url",       url);
         cmd.Parameters.AddWithValue("scannedAt", DateTime.UtcNow.ToString("O"));

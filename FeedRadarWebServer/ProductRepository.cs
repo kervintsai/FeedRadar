@@ -100,6 +100,16 @@ public class ProductRepository
             );
             """);
 
+        Exec(conn, "ALTER TABLE ProductPrices ADD COLUMN IF NOT EXISTS Volume TEXT NOT NULL DEFAULT '';");
+        Exec(conn, "ALTER TABLE ProductPrices DROP CONSTRAINT IF EXISTS productprices_productid_site_key;");
+        Exec(conn, """
+            DO $$ BEGIN
+              ALTER TABLE ProductPrices ADD CONSTRAINT productprices_productid_site_volume_key
+                UNIQUE (ProductId, Site, Volume);
+            EXCEPTION WHEN duplicate_object THEN NULL;
+            END $$;
+            """);
+
         Exec(conn, """
             CREATE TABLE IF NOT EXISTS FilterOptions (
                 Category TEXT NOT NULL,
@@ -309,7 +319,7 @@ public class ProductRepository
             SELECT Id, Url, Title, Brand, PetType, Age, IsPrescription, Form,
                    ImageUrl, IngredientsText, NutritionText,
                    ProteinPct, FatPct, CarbsPct, PhosphorusPct, CaloriesKcalPerKg,
-                   Volume, MinPrice, PriceSource, PriceUpdatedAt
+                   MinPrice, PriceSource, PriceUpdatedAt
             FROM Products {where}
             ORDER BY Title
             LIMIT @lim OFFSET @off;
@@ -319,34 +329,64 @@ public class ProductRepository
 
         var products = Query<ProductDto>(cmd, r =>
         {
-            var imageUrl     = r.IsDBNull(8)  ? null : r.GetString(8);
-            var ingText      = r.GetString(9);
-            var ingredients  = SplitIngredients(ingText);
+            var imageUrl    = r.IsDBNull(8)  ? null : r.GetString(8);
+            var ingText     = r.GetString(9);
+            var ingredients = SplitIngredients(ingText);
             return new ProductDto(
-                Id:               r.GetInt32(0),
-                Url:              r.GetString(1),
-                Title:            r.GetString(2),
-                Brand:            r.GetString(3),
-                PetType:          r.GetString(4),
-                Age:              r.GetString(5),
-                IsPrescription:   r.GetBoolean(6),
-                Form:             r.GetString(7),
-                Images:           imageUrl != null ? [imageUrl] : [],
-                Ingredients:      ingredients,
-                NutritionText:    r.GetString(10),
-                ProteinPct:       r.IsDBNull(11) ? null : r.GetDouble(11),
-                FatPct:           r.IsDBNull(12) ? null : r.GetDouble(12),
-                CarbsPct:         r.IsDBNull(13) ? null : r.GetDouble(13),
-                PhosphorusPct:    r.IsDBNull(14) ? null : r.GetDouble(14),
+                Id:                r.GetInt32(0),
+                Url:               r.GetString(1),
+                Title:             r.GetString(2),
+                Brand:             r.GetString(3),
+                PetType:           r.GetString(4),
+                Age:               r.GetString(5),
+                IsPrescription:    r.GetBoolean(6),
+                Form:              r.GetString(7),
+                Images:            imageUrl != null ? [imageUrl] : [],
+                Ingredients:       ingredients,
+                NutritionText:     r.GetString(10),
+                ProteinPct:        r.IsDBNull(11) ? null : r.GetDouble(11),
+                FatPct:            r.IsDBNull(12) ? null : r.GetDouble(12),
+                CarbsPct:          r.IsDBNull(13) ? null : r.GetDouble(13),
+                PhosphorusPct:     r.IsDBNull(14) ? null : r.GetDouble(14),
                 CaloriesKcalPerKg: r.IsDBNull(15) ? null : r.GetDouble(15),
-                Volume:           r.IsDBNull(16) ? null : r.GetString(16),
-                Price:            r.IsDBNull(17) ? null : r.GetDecimal(17),
-                PriceSource:      r.IsDBNull(18) ? null : r.GetString(18),
-                PriceUpdatedAt:   r.IsDBNull(19) ? null : r.GetString(19),
-                Functional:       [],
-                IsGrainFree:      null
+                Price:             r.IsDBNull(16) ? null : r.GetDecimal(16),
+                PriceSource:       r.IsDBNull(17) ? null : r.GetString(17),
+                PriceUpdatedAt:    r.IsDBNull(18) ? null : r.GetString(18),
+                Variants:          [],
+                Functional:        [],
+                IsGrainFree:       null
             );
         });
+
+        if (products.Count > 0)
+        {
+            var ids         = string.Join(",", products.Select(p => p.Id));
+            var variantMap  = new Dictionary<int, List<PriceVariantDto>>();
+            using var vConn = new NpgsqlConnection(_connectionString);
+            vConn.Open();
+            using var vc    = vConn.CreateCommand();
+            vc.CommandText  = $"""
+                SELECT ProductId, Volume, Price, Site, ScannedAt
+                FROM ProductPrices
+                WHERE ProductId IN ({ids})
+                ORDER BY ProductId, Price ASC;
+                """;
+            using var vr = vc.ExecuteReader();
+            while (vr.Read())
+            {
+                var pid = vr.GetInt32(0);
+                if (!variantMap.ContainsKey(pid)) variantMap[pid] = new();
+                variantMap[pid].Add(new PriceVariantDto(
+                    Volume:    vr.GetString(1) is { Length: > 0 } vol ? vol : null,
+                    Price:     vr.GetDecimal(2),
+                    Site:      vr.GetString(3),
+                    UpdatedAt: vr.IsDBNull(4) ? null : vr.GetString(4)
+                ));
+            }
+            products = products.Select(p => p with {
+                Variants = variantMap.GetValueOrDefault(p.Id, [])
+            }).ToList();
+        }
 
         return (products, total);
     }

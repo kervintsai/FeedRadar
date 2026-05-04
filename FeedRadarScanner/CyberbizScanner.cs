@@ -136,12 +136,11 @@ public class CyberbizScanner
         {
             try
             {
-                var products = await FetchProductAsync(handle, isTreatCollection, token);
-                if (products.Count > 0)
+                var p = await FetchProductAsync(handle, isTreatCollection, token);
+                if (p != null)
                 {
-                    lock (gate) results.AddRange(products);
-                    foreach (var p in products)
-                        Console.WriteLine($"[{SiteName}][OK] {p.Title}");
+                    lock (gate) results.Add(p);
+                    Console.WriteLine($"[{SiteName}][OK] {p.Title} ({p.Variants.Count} variant(s))");
                 }
             }
             catch (Exception ex)
@@ -195,11 +194,11 @@ public class CyberbizScanner
         return $"{uri.Scheme}://{uri.Host}{port}{encodedPath}?page={page}&per={per}&sort_by=&product_filters=%5B%5D&tags=";
     }
 
-    private async Task<List<Product>> FetchProductAsync(string handle, bool isTreatCollection, CancellationToken ct)
+    private async Task<Product?> FetchProductAsync(string handle, bool isTreatCollection, CancellationToken ct)
     {
         var encodedHandle = Uri.EscapeDataString(handle);
         var res = await _http.GetAsync($"{Origin}/products/{encodedHandle}.json", ct);
-        if (!res.IsSuccessStatusCode) return [];
+        if (!res.IsSuccessStatusCode) return null;
 
         var json = await res.Content.ReadAsStringAsync(ct);
         using var doc  = JsonDocument.Parse(json);
@@ -211,7 +210,7 @@ public class CyberbizScanner
         if (IsNonFood(title, productType))
         {
             Console.WriteLine($"[{SiteName}][Skip] non-food: {title}");
-            return [];
+            return null;
         }
 
         var tags = new List<string>();
@@ -274,37 +273,38 @@ public class CyberbizScanner
             carbsPct = Math.Round(Math.Max(c, 0), 2);
         }
 
-        var variants = ParseVariants(root);
+        var parsedVariants = ParseVariants(root);
+        var productVariants = parsedVariants
+            .Where(v => v.Price.HasValue)
+            .Select(v => (Volume: v.Volume ?? "", Price: v.Price!.Value))
+            .ToList();
 
-        return variants.Select(v =>
+        return new Product
         {
-            var variantTitle = v.Volume != null ? $"{title} {v.CleanOption}" : title;
-            return new Product
-            {
-                Url               = $"{Origin}/products/{encodedHandle}",
-                Title             = variantTitle,
-                Brand             = ExtractBrand(title),
-                PetType           = DetectPetType(title, productType ?? "", tags),
-                Age               = DetectAgeStage(title, tags),
-                IsPrescription    = DetectIsPrescription(title, tags),
-                Form              = DetectForm(title, productType ?? "", tags, isTreatCollection),
-                ImageUrl          = imageUrl,
-                IngredientsText   = ingredientsText,
-                NutritionText     = nutritionText,
-                Ingredients       = ParseIngredients(ingredientsText),
-                Sections          = sections,
-                CaloriesKcalPerKg = ParseCaloriesKcalPerKg(sections),
-                ProteinPct        = proteinPct,
-                FatPct            = fatPct,
-                FiberPct          = fiberPct,
-                MoisturePct       = moisturePct,
-                AshPct            = ashPct,
-                CarbsPct          = carbsPct,
-                PhosphorusPct     = phosphorusPct,
-                Volume            = v.Volume ?? ParseVolume(title),
-                Price             = v.Price,
-            };
-        }).ToList();
+            Url               = $"{Origin}/products/{encodedHandle}",
+            Title             = title,
+            Brand             = ExtractBrand(title),
+            PetType           = DetectPetType(title, productType ?? "", tags),
+            Age               = DetectAgeStage(title, tags),
+            IsPrescription    = DetectIsPrescription(title, tags),
+            Form              = DetectForm(title, productType ?? "", tags, isTreatCollection),
+            ImageUrl          = imageUrl,
+            IngredientsText   = ingredientsText,
+            NutritionText     = nutritionText,
+            Ingredients       = ParseIngredients(ingredientsText),
+            Sections          = sections,
+            CaloriesKcalPerKg = ParseCaloriesKcalPerKg(sections),
+            ProteinPct        = proteinPct,
+            FatPct            = fatPct,
+            FiberPct          = fiberPct,
+            MoisturePct       = moisturePct,
+            AshPct            = ashPct,
+            CarbsPct          = carbsPct,
+            PhosphorusPct     = phosphorusPct,
+            Volume            = parsedVariants.FirstOrDefault(v => v.Volume != null)?.Volume ?? ParseVolume(title),
+            Price             = null,
+            Variants          = productVariants,
+        };
     }
 
     private static List<ProductVariant> ParseVariants(JsonElement root)
@@ -529,4 +529,5 @@ public class Product
     public double?  PhosphorusPct     { get; set; }
     public string?  Volume            { get; set; }
     public decimal? Price             { get; set; }
+    public List<(string Volume, decimal Price)> Variants { get; set; } = new();
 }
