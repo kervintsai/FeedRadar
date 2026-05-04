@@ -367,10 +367,11 @@ public class ProductRepository
             vConn.Open();
             using var vc    = vConn.CreateCommand();
             vc.CommandText  = $"""
-                SELECT ProductId, Volume, Price, PricePerGram, Site, ScannedAt
+                SELECT DISTINCT ON (ProductId, Volume)
+                    ProductId, Volume, Price, PricePerGram, Site, ScannedAt
                 FROM ProductPrices
                 WHERE ProductId IN ({ids})
-                ORDER BY ProductId, PricePerGram ASC NULLS LAST, Price ASC;
+                ORDER BY ProductId, Volume, Price ASC;
                 """;
             using var vr = vc.ExecuteReader();
             while (vr.Read())
