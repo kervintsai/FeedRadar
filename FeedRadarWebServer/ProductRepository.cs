@@ -105,10 +105,18 @@ public class ProductRepository
         Exec(conn, "ALTER TABLE ProductPrices ADD COLUMN IF NOT EXISTS PricePerGram NUMERIC;");
         Exec(conn, "ALTER TABLE ProductPrices DROP CONSTRAINT IF EXISTS productprices_productid_site_key;");
         Exec(conn, """
+            DELETE FROM ProductPrices
+            WHERE Id NOT IN (
+                SELECT MIN(Id)
+                FROM ProductPrices
+                GROUP BY ProductId, Site, Volume
+            );
+            """);
+        Exec(conn, """
             DO $$ BEGIN
               ALTER TABLE ProductPrices ADD CONSTRAINT productprices_productid_site_volume_key
                 UNIQUE (ProductId, Site, Volume);
-            EXCEPTION WHEN duplicate_object THEN NULL;
+            EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL;
             END $$;
             """);
 
