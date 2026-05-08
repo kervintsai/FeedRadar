@@ -116,7 +116,7 @@ public class ProductRepository
             DO $$ BEGIN
               ALTER TABLE ProductPrices ADD CONSTRAINT productprices_productid_site_volume_key
                 UNIQUE (ProductId, Site, Volume);
-            EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL;
+            EXCEPTION WHEN OTHERS THEN NULL;
             END $$;
             """);
 
