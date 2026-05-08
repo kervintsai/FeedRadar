@@ -95,7 +95,8 @@ public class CyberbizScanner
 
         foreach (var s in sources)
         {
-            if (s.Contains("乾糧") || s.Contains("乾食")) return "dry";
+            if (s.Contains("乾糧") || s.Contains("乾食") ||
+                s.Contains("犬糧") || s.Contains("貓糧") || s.Contains("狗糧")) return "dry";
             if (s.Contains("罐頭") || s.Contains("主食罐") || s.Contains("罐罐")) return "can";
             if (s.Contains("濕食") || s.Contains("餐包")) return "wet";
             if (s.Contains("肉乾") || s.Contains("凍乾") || s.Contains("冷凍乾燥") ||
@@ -256,7 +257,7 @@ public class CyberbizScanner
                        ?? ParseNutrientGramsAsPct(nutrientSource, servingG, "蛋白質", "蛋白");
         var fatPct      = ParseNutrientPct(nutrientSource, "脂肪")
                        ?? ParseNutrientGramsAsPct(nutrientSource, servingG, "脂肪");
-        var fiberPct    = ParseNutrientPct(nutrientSource, "粗纖維")
+        var fiberPct    = ParseNutrientPct(nutrientSource, "粗纖維", "纖維")
                        ?? ParseNutrientGramsAsPct(nutrientSource, servingG, "纖維");
         var moisturePct = ParseNutrientPct(nutrientSource, "水分")
                        ?? ParseNutrientGramsAsPct(nutrientSource, servingG, "水分");
@@ -265,11 +266,10 @@ public class CyberbizScanner
         var phosphorusPct = ParseNutrientPct(nutrientSource, "磷");
 
         double? carbsPct = null;
-        if (proteinPct.HasValue && fatPct.HasValue && fiberPct.HasValue &&
-            moisturePct.HasValue && ashPct.HasValue)
+        if (proteinPct.HasValue && fatPct.HasValue && fiberPct.HasValue && ashPct.HasValue)
         {
             var c = 100 - proteinPct.Value - fatPct.Value - fiberPct.Value
-                       - moisturePct.Value - ashPct.Value;
+                       - (moisturePct ?? 0) - ashPct.Value;
             carbsPct = Math.Round(Math.Max(c, 0), 2);
         }
 
@@ -279,15 +279,19 @@ public class CyberbizScanner
             .Select(v => (Volume: v.Volume ?? "", Price: v.Price!.Value))
             .ToList();
 
+        var cleanTitle = Regex.Replace(title, @"【[^】]*】\s*", "").Trim();
+        var form       = DetectForm(title, productType ?? "", tags, isTreatCollection);
+        if (form == "" && ashPct.HasValue && !moisturePct.HasValue) form = "dry";
+
         return new Product
         {
             Url               = $"{Origin}/products/{encodedHandle}",
-            Title             = title,
+            Title             = cleanTitle,
             Brand             = ExtractBrand(title),
             PetType           = DetectPetType(title, productType ?? "", tags),
             Age               = DetectAgeStage(title, tags),
             IsPrescription    = DetectIsPrescription(title, tags),
-            Form              = DetectForm(title, productType ?? "", tags, isTreatCollection),
+            Form              = form,
             ImageUrl          = imageUrl,
             IngredientsText   = ingredientsText,
             NutritionText     = nutritionText,

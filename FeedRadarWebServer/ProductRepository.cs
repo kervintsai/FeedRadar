@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Npgsql;
 
 public class ProductRepository
@@ -342,10 +343,12 @@ public class ProductRepository
             var imageUrl    = r.IsDBNull(8)  ? null : r.GetString(8);
             var ingText     = r.GetString(9);
             var ingredients = SplitIngredients(ingText);
+            var rawTitle    = r.GetString(2);
+            var cleanTitle  = Regex.Replace(rawTitle, @"【[^】]*】\s*", "").Trim();
             return new ProductDto(
                 Id:                r.GetInt32(0),
                 Url:               r.GetString(1),
-                Title:             r.GetString(2),
+                Title:             cleanTitle,
                 Brand:             r.GetString(3),
                 PetType:           r.GetString(4),
                 Age:               r.GetString(5),
@@ -364,7 +367,7 @@ public class ProductRepository
                 PriceUpdatedAt:    r.IsDBNull(18) ? null : r.GetString(18),
                 Variants:          [],
                 Functional:        [],
-                IsGrainFree:       null
+                IsGrainFree:       ComputeIsGrainFree(rawTitle, ingText)
             );
         });
 
@@ -401,6 +404,16 @@ public class ProductRepository
         }
 
         return (products, total);
+    }
+
+    private static readonly string[] GrainKeywords =
+        ["小麥", "玉米", "大麥", "燕麥", "高粱", "大米", "糙米", "米粉", "麩皮", "麩質", "麥芽"];
+
+    private static bool? ComputeIsGrainFree(string title, string ingText)
+    {
+        if (title.Contains("無穀")) return true;
+        if (string.IsNullOrWhiteSpace(ingText)) return null;
+        return !GrainKeywords.Any(g => ingText.Contains(g));
     }
 
     private static List<string> SplitIngredients(string text)
