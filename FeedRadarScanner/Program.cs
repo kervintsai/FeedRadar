@@ -42,7 +42,7 @@ var scannerCollections = new (string Site, Func<string, Task<List<Product>>> Sca
     ]),
 };
 
-var quickScan = Environment.GetEnvironmentVariable("QUICK_SCAN") == "true";
+var quickScan = Environment.GetEnvironmentVariable("QUICK_SCAN") == "true"; // set QUICK_SCAN=false for full scan
 Console.WriteLine(quickScan ? "[Mode] QUICK_SCAN" : "[Mode] FULL_SCAN");
 
 repo.TruncateAll();
